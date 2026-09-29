@@ -9,6 +9,9 @@ import { Plugin, NodeSelection } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FieldType } from '../types';
+import { SignatureChooser } from '../../components/SignatureChooser';
+import { SealPicker } from '../../components/SealPicker';
+import { useSigningContext } from '../../signing/context';
 import { PAGINATION_META } from './Pagination';
 
 type ResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
@@ -141,6 +144,52 @@ function syncAnchoredOverlay(view: EditorView): boolean {
     }
   }
   return false;
+}
+
+function SigningPageOverlayNodeView({ node }: Pick<NodeViewProps, 'node'>) {
+  const signing = useSigningContext();
+  if (!signing) return null;
+  const field = signing.fields[node.attrs.fieldId];
+  const editable = field?.roleId === signing.roleId && (field.type === 'signature' || field.type === 'companySeal');
+  const completedSignature = signing.signatures[node.attrs.fieldId];
+  const completedSeal = signing.seals[node.attrs.fieldId];
+  return (
+    <NodeViewWrapper
+      as="div"
+      className="page-overlay signing-page-overlay"
+      data-page-overlay
+      data-ref-id={node.attrs.refId}
+      data-field-id={node.attrs.fieldId}
+      contentEditable={false}
+    >
+      <div
+        className={`page-overlay__box signing-page-overlay__box${signing.invalidFieldIds.has(node.attrs.fieldId) ? ' is-invalid' : ''}`}
+        style={{ left: `${node.attrs.x}px`, top: `${node.attrs.y}px`, width: `${node.attrs.width}px`, height: `${node.attrs.height}px` }}
+        role="group"
+        aria-label={node.attrs.fieldName}
+      >
+        {editable && field?.type === 'signature' ? (
+          <SignatureChooser
+            userId={signing.userId}
+            value={signing.signatures[field.id]}
+            invalid={signing.invalidFieldIds.has(field.id)}
+            onChange={value => signing.setSignature(field.id, value)}
+          />
+        ) : editable && field?.type === 'companySeal' ? (
+          <SealPicker contractId={signing.contractId} userId={signing.userId} value={signing.seals[field.id]} invalid={signing.invalidFieldIds.has(field.id)} onChange={value => signing.setSeal(field.id, value)} />
+        ) : completedSignature
+          ? <img className="signing-page-overlay__signature" src={completedSignature} alt={`${node.attrs.fieldName}已签署`} />
+          : completedSeal
+            ? <img className="signing-page-overlay__signature" src={completedSeal} alt={`${node.attrs.fieldName}已盖章`} />
+          : <span className="page-overlay__label">{node.attrs.fieldName}</span>}
+      </div>
+    </NodeViewWrapper>
+  );
+}
+
+function PageOverlayNodeView(props: NodeViewProps) {
+  const signing = useSigningContext();
+  return signing ? <SigningPageOverlayNodeView node={props.node} /> : <DesignPageOverlayNodeView {...props} />;
 }
 
 function DesignPageOverlayNodeView({
@@ -554,7 +603,7 @@ export const PageOverlay = Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(DesignPageOverlayNodeView);
+    return ReactNodeViewRenderer(PageOverlayNodeView);
   },
 
   addProseMirrorPlugins() {

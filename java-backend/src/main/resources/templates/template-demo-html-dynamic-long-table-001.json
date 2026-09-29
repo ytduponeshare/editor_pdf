@@ -1,0 +1,170 @@
+{
+  "id": "template-demo-html-dynamic-long-table-001",
+  "name": "动态超高表格分页示例",
+  "template": {
+    "format": "html",
+    "formatVersion": 1,
+    "pageSettings": {
+      "size": "A4",
+      "orientation": "portrait",
+      "marginsMm": {
+        "top": 20,
+        "right": 20,
+        "bottom": 20,
+        "left": 20
+      },
+      "printStyleVersion": "contract-a4-v2"
+    },
+    "roles": [
+      {
+        "id": "party-a",
+        "name": "甲方"
+      },
+      {
+        "id": "party-b",
+        "name": "乙方"
+      }
+    ],
+    "fields": [
+      {
+        "id": "dynamic-name-party-a",
+        "name": "甲方姓名",
+        "type": "text",
+        "roleId": "party-a",
+        "binding": {
+          "version": 1,
+          "sourceId": "system",
+          "fieldId": "name",
+          "type": "text",
+          "sourceName": "系统字段",
+          "fieldName": "姓名",
+          "kind": "category",
+          "inputType": "text"
+        }
+      },
+      {
+        "id": "dynamic-signature-party-a",
+        "name": "甲方签名",
+        "type": "signature",
+        "roleId": "party-a"
+      },
+      {
+        "id": "dynamic-seal-party-a",
+        "name": "甲方企业章",
+        "type": "companySeal",
+        "roleId": "party-a"
+      },
+      {
+        "id": "dynamic-name-party-b",
+        "name": "乙方姓名",
+        "type": "text",
+        "roleId": "party-b",
+        "binding": {
+          "version": 1,
+          "sourceId": "system",
+          "fieldId": "name",
+          "type": "text",
+          "sourceName": "系统字段",
+          "fieldName": "姓名",
+          "kind": "category",
+          "inputType": "text"
+        }
+      },
+      {
+        "id": "dynamic-signature-party-b",
+        "name": "乙方签名",
+        "type": "signature",
+        "roleId": "party-b"
+      },
+      {
+        "id": "dynamic-code-template",
+        "name": "明细编码",
+        "type": "text",
+        "binding": {
+          "version": 1,
+          "sourceId": "long-contract-items",
+          "fieldId": "code",
+          "type": "text",
+          "sourceName": "动态超高协议明细",
+          "fieldName": "明细编码",
+          "kind": "record",
+          "record": 1
+        }
+      },
+      {
+        "id": "dynamic-description-template",
+        "name": "协议说明",
+        "type": "text",
+        "binding": {
+          "version": 1,
+          "sourceId": "long-contract-items",
+          "fieldId": "description",
+          "type": "text",
+          "sourceName": "动态超高协议明细",
+          "fieldName": "协议说明",
+          "kind": "record",
+          "record": 1
+        }
+      },
+      {
+        "id": "dynamic-status-template",
+        "name": "状态",
+        "type": "text",
+        "binding": {
+          "version": 1,
+          "sourceId": "long-contract-items",
+          "fieldId": "status",
+          "type": "text",
+          "sourceName": "动态超高协议明细",
+          "fieldName": "状态",
+          "kind": "record",
+          "record": 1
+        }
+      }
+    ],
+    "fieldTables": [
+      {
+        "tableId": "dynamic-long-table",
+        "config": {
+          "version": 1,
+          "mode": "list",
+          "sourceId": "long-contract-items",
+          "rows": 1,
+          "columns": [
+            {
+              "id": "code",
+              "title": "明细编码",
+              "type": "text",
+              "binding": {
+                "kind": "current",
+                "sourceId": "long-contract-items",
+                "fieldId": "code"
+              }
+            },
+            {
+              "id": "description",
+              "title": "协议说明",
+              "type": "text",
+              "binding": {
+                "kind": "current",
+                "sourceId": "long-contract-items",
+                "fieldId": "description"
+              }
+            },
+            {
+              "id": "status",
+              "title": "状态",
+              "type": "text",
+              "binding": {
+                "kind": "current",
+                "sourceId": "long-contract-items",
+                "fieldId": "status"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "html": "<section data-contract-page data-page-id=\"dynamic-long-table-page-1\" data-break-type=\"root\">\n        <h1 style=\"text-align: center\">动态超高表格分页示例</h1>\n        <p>甲方代表：<span data-contract-field data-ref-id=\"dynamic-ref-name-party-a\" data-field-id=\"dynamic-name-party-a\" data-field-type=\"text\" data-field-name=\"甲方姓名\" data-width=\"130\"></span></p>\n        <p>乙方员工：<span data-contract-field data-ref-id=\"dynamic-ref-name-party-b\" data-field-id=\"dynamic-name-party-b\" data-field-type=\"text\" data-field-name=\"乙方姓名\" data-width=\"130\"></span></p>\n        <p>模板中只有下方一条数据行；发送协议时按数据库记录动态展开。其中 DB-ITEM-012 的协议说明高度超过一整页，用于验证单条业务记录跨页。</p>\n        <table data-table-id=\"dynamic-long-table\" data-fragment-id=\"dynamic-long-table-fragment-1\">\n          <thead>\n            <tr data-row-id=\"dynamic-long-header-row\"><th><p>明细编码</p></th><th><p>协议说明</p></th><th><p>状态</p></th></tr>\n          </thead>\n          <tbody>\n            <tr data-row-id=\"dynamic-long-template-row\">\n              <td><p><span data-contract-field data-ref-id=\"dynamic-ref-code\" data-field-id=\"dynamic-code-template\" data-field-type=\"text\" data-field-name=\"明细编码\" data-width=\"130\" data-bound-column=\"code\"></span></p></td>\n              <td><p><span data-contract-field data-ref-id=\"dynamic-ref-description\" data-field-id=\"dynamic-description-template\" data-field-type=\"text\" data-field-name=\"协议说明\" data-width=\"400\" data-bound-column=\"description\"></span></p></td>\n              <td><p><span data-contract-field data-ref-id=\"dynamic-ref-status\" data-field-id=\"dynamic-status-template\" data-field-type=\"text\" data-field-name=\"状态\" data-width=\"130\" data-bound-column=\"status\"></span></p></td>\n            </tr>\n          </tbody>\n        </table>\n        <p>动态表格尾注：本段必须在数据库全部记录之后出现，不能覆盖、提前或丢失。</p>\n        <p>双方确认已阅读并认可数据库快照生成的全部协议明细。</p>\n        <div data-contract-anchor data-anchor-id=\"dynamic-sign-area\" data-anchor-name=\"动态表格后的签署区域\" data-reserved-height=\"140\"></div>\n        <div data-contract-overlay data-ref-id=\"dynamic-ref-signature-party-a\" data-field-id=\"dynamic-signature-party-a\" data-field-type=\"signature\" data-field-name=\"甲方签名\" data-width=\"170\" data-height=\"70\" data-x=\"20\" data-y=\"0\" data-position-mode=\"anchor\" data-anchor-id=\"dynamic-sign-area\" data-anchor-align=\"left\" data-anchor-offset-x=\"20\" data-anchor-offset-y=\"30\"></div>\n        <div data-contract-overlay data-ref-id=\"dynamic-ref-seal-party-a\" data-field-id=\"dynamic-seal-party-a\" data-field-type=\"companySeal\" data-field-name=\"甲方企业章\" data-width=\"110\" data-height=\"110\" data-x=\"220\" data-y=\"0\" data-position-mode=\"anchor\" data-anchor-id=\"dynamic-sign-area\" data-anchor-align=\"left\" data-anchor-offset-x=\"220\" data-anchor-offset-y=\"10\"></div>\n        <div data-contract-overlay data-ref-id=\"dynamic-ref-signature-party-b\" data-field-id=\"dynamic-signature-party-b\" data-field-type=\"signature\" data-field-name=\"乙方签名\" data-width=\"170\" data-height=\"70\" data-x=\"400\" data-y=\"0\" data-position-mode=\"anchor\" data-anchor-id=\"dynamic-sign-area\" data-anchor-align=\"left\" data-anchor-offset-x=\"400\" data-anchor-offset-y=\"30\"></div>\n      </section>"
+  }
+}

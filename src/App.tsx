@@ -14,11 +14,16 @@ import {
   loadTemplateFromLocalStorage,
   readTemplateFile,
   saveTemplateToLocalStorage,
+  serializeHtmlTemplate,
   createSanitizedPrintHtml,
 } from './editor/template';
 import { type FieldType } from './editor/types';
 import { pdfExportService } from './services/pdfExport';
+import { SigningFlow, StartSigningDialog, type SigningSession } from './components/SigningFlow';
+import { getRoles } from './editor/roles';
+import { ContractRecordsDialog } from './components/SignedFilesDialog';
 import { type ContractTemplateSource } from './editor/types';
+import { DemoPortal } from './components/DemoPortal';
 
 type SaveState = 'saved' | 'saving' | 'error';
 
@@ -45,18 +50,30 @@ function hasOverflowingPage(): HTMLElement | null {
   return document.querySelector<HTMLElement>('.contract-page[data-overflow="true"]');
 }
 
-export function ContractEditor() {
+export function ContractEditor({ initialTemplate, templateName = '', templateId, onBack, onSaved }: {
+  initialTemplate?: ContractTemplateSource;
+  templateName?: string;
+  templateId?: string;
+  onBack?: () => void;
+  onSaved?: (name: string, template: ContractTemplateSource, id?: string) => Promise<void>;
+} = {}) {
   const extensions = useMemo(() => createEditorExtensions(), []);
-  const initial = useMemo(() => getInitialDocument(extensions), [extensions]);
+  const initial = useMemo(() => getInitialDocument(extensions, initialTemplate), [extensions, initialTemplate]);
   const [revision, setRevision] = useState(0);
   const [message, setMessage] = useState(initial.error);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [isExporting, setIsExporting] = useState(false);
+  const [showSigningDialog, setShowSigningDialog] = useState(false);
+  const [signingSession, setSigningSession] = useState<SigningSession | null>(null);
+  const [showSignedFiles, setShowSignedFiles] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const lastCaretPositionRef = useRef<number | null>(null);
 
   const editor = useEditor({ extensions, content: initial.content, autofocus: 'end' });
+  const activeFormat = 'html';
+  const serializeCurrentTemplate = (activeEditor: TiptapEditor): ContractTemplateSource => serializeHtmlTemplate(activeEditor);
+
   useEffect(() => {
     if (!editor) return undefined;
 
@@ -134,7 +151,12 @@ export function ContractEditor() {
     try {
       const template = await readTemplateFile(file, editor.schema);
       if (!window.confirm('导入模板会覆盖当前内容，确定继续吗？')) return;
-      editor.commands.setContent(hydrateTemplateSource(template), { emitUpdate: true });
+      editor.chain().setContent(hydrateTemplateSource(template), { emitUpdate: true }).command(({ tr }) => {
+        tr.setDocAttribute('fieldDefinitions', template.fields);
+        tr.setDocAttribute('roles', template.roles);
+        tr.setDocAttribute('pageMargins', template.pageSettings.marginsMm);
+        return true;
+      }).run();
       setMessage('模板导入成功');
     } catch (error) {
       setMessage(error instanceof Error ? `导入失败：${error.message}` : '模板导入失败');
@@ -173,8 +195,18 @@ export function ContractEditor() {
     setMessage('HTML 导出成功');
   };
 
+  const handleSaveTemplate = async () => {
+    if (!editor || !onSaved) return;
+    const name = window.prompt('模板名称', templateName || '未命名合同模板')?.trim();
+    if (!name) return;
+    setSaveState('saving'); setMessage('');
+    try { await onSaved(name, serializeCurrentTemplate(editor), templateId); setSaveState('saved'); setMessage('HTML 模板已保存到演示模板库'); }
+    catch (error) { setSaveState('error'); setMessage(error instanceof Error ? error.message : '模板保存失败'); }
+  };
+
   if (!editor) return <div className="app-loading">编辑器加载中…</div>;
 
+  if (signingSession) return <SigningFlow session={signingSession} onBack={() => setSigningSession(null)} onContinue={setSigningSession} />;
 
   const saveLabel = saveState === 'saving' ? '保存中…' : saveState === 'error' ? '保存失败' : '已保存到本地';
 
@@ -183,11 +215,16 @@ export function ContractEditor() {
       <EditorToolbar
         editor={editor}
         onImport={() => importInputRef.current?.click()}
-        onDownload={() => downloadTemplate(editor, 'html')}
+        onDownload={() => downloadTemplate(editor, activeFormat)}
         onExportHtml={() => handleHtmlExport(editor)}
         onExportHtmlPdf={() => void handleHtmlPdfExport(editor)}
+        onStartSigning={() => setShowSigningDialog(true)}
+        onOpenSignedFiles={() => setShowSignedFiles(true)}
         isExporting={isExporting}
         saveLabel={saveLabel}
+        onSaveTemplate={onSaved ? () => void handleSaveTemplate() : undefined}
+        onBack={onBack}
+        hideLegacySigning={!!onSaved}
       />
       {message ? <div className="app-message" role="status"><span>{message}</span><button type="button" onClick={() => setMessage('')} aria-label="关闭提示">×</button></div> : null}
       <div className="editor-layout">
@@ -222,10 +259,20 @@ export function ContractEditor() {
           if (file) void handleImport(file);
         }}
       />
+      {showSigningDialog ? <StartSigningDialog
+        roles={getRoles(editor)}
+        fields={editor.state.doc.attrs.fieldDefinitions}
+        onClose={() => setShowSigningDialog(false)}
+        onStart={(signerName, roleId) => {
+          setSigningSession({ template: serializeCurrentTemplate(editor), signerName, roleId });
+          setShowSigningDialog(false);
+        }}
+      /> : null}
+      {showSignedFiles ? <ContractRecordsDialog onClose={() => setShowSignedFiles(false)} onContinue={setSigningSession} /> : null}
     </div>
   );
 }
 
 export default function App() {
-  return <ContractEditor />;
+  return <DemoPortal />;
 }

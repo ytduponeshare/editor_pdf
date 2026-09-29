@@ -163,7 +163,10 @@ function sanitizeTemplateMarkup(html: string): string {
 }
 
 export function serializeHtmlTemplate(editor: Editor): HtmlContractTemplateV1 {
-  const template = serializeTemplate(editor);
+  return convertJsonTemplateToHtml(serializeTemplate(editor));
+}
+
+export function convertJsonTemplateToHtml(template: ContractTemplateV3): HtmlContractTemplateV1 {
   const parsed = new DOMParser().parseFromString(
     generateHTML(hydrateTemplate(template), createEditorExtensions()),
     'text/html',
@@ -192,7 +195,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function validateFields(value: unknown): FieldDefinition[] {
+function tableBoundFieldIds(document: JSONContent): Set<string> {
+  const ids = new Set<string>();
+  const visit = (node: JSONContent, inFieldTable = false) => {
+    const inside = inFieldTable || node.type === 'table' && isFieldTableConfig(node.attrs?.fieldTable);
+    if (inside && node.type === 'inlineField' && node.attrs?.boundColumn && typeof node.attrs.fieldId === 'string') ids.add(node.attrs.fieldId);
+    node.content?.forEach(child => visit(child, inside));
+  };
+  visit(document);
+  return ids;
+}
+
+function validateFields(value: unknown, tableFields = new Set<string>()): FieldDefinition[] {
   if (!Array.isArray(value)) {
     throw new Error('模板 fields 必须是数组');
   }
@@ -218,7 +232,7 @@ function validateFields(value: unknown): FieldDefinition[] {
       field.roleId = item.roleId;
     }
     if (item.binding !== undefined) {
-      if (!field.roleId || !validBinding(item.binding, field)) throw new Error('字段数据库绑定无效');
+      if ((!field.roleId && !tableFields.has(field.id)) || !validBinding(item.binding, field)) throw new Error('字段数据库绑定无效');
       field.binding = item.binding;
     }
     return field;
@@ -245,7 +259,8 @@ function validateDocumentNodes(
   const anchors = new Map<string, number>();
   const anchoredOverlays: Array<{ fieldName: string; anchorId: string; height: number; offsetY: number }> = [];
 
-  const walk = (node: JSONContent, parentType?: string) => {
+  const walk = (node: JSONContent, parentType?: string, inFieldTable = false) => {
+    const inside = inFieldTable || node.type === 'table' && isFieldTableConfig(node.attrs?.fieldTable);
     if (!node.type || !ALLOWED_DOCUMENT_NODES.has(node.type)) {
       throw new Error(`模板包含不支持的节点：${node.type || 'unknown'}`);
     }
@@ -340,6 +355,7 @@ function validateDocumentNodes(
       if (!field || typeof refId !== 'string' || !refId || refIds.has(refId)) {
         throw new Error('字段引用不存在、缺失或重复');
       }
+      if (field.binding && !field.roleId && (!inside || !node.attrs?.boundColumn)) throw new Error('未分配角色的绑定字段必须属于字段表格');
       if (node.type === 'pageOverlay' && !isFloatingFieldType(field.type)) {
         throw new Error('只有签署区和企业章可以作为页面浮层');
       }
@@ -402,7 +418,7 @@ function validateDocumentNodes(
       refIds.add(refId);
     }
 
-    node.content?.forEach((child) => walk(child, node.type));
+    node.content?.forEach((child) => walk(child, node.type, inside));
   };
 
   walk(document);
@@ -499,7 +515,7 @@ export function validateTemplate(value: unknown, schema: Schema): ContractTempla
     throw new Error('模板文档结构无效');
   }
 
-  const fields = validateFields(value.fields);
+  const fields = validateFields(value.fields, tableBoundFieldIds(value.document as JSONContent));
   const roles = validateRoles(value.roles);
   if (fields.some(f => f.roleId && !roles.some(r => r.id === f.roleId))) throw new Error('字段引用的角色不存在');
   const document = value.schemaVersion === 1
@@ -539,11 +555,14 @@ export function validateHtmlTemplate(value: unknown, schema: Schema): HtmlContra
     tableIds.add(item.tableId);
     return { tableId: item.tableId, config: item.config };
   });
+  const html = sanitizeTemplateMarkup(value.html);
+  const dom = new DOMParser().parseFromString(html, 'text/html');
+  const tableFields = new Set(Array.from(dom.querySelectorAll<HTMLElement>('table[data-table-id] [data-bound-column][data-field-id]')).map(field => field.dataset.fieldId!));
   const template: HtmlContractTemplateV1 = {
     format: 'html', formatVersion: 1,
-    html: sanitizeTemplateMarkup(value.html),
+    html,
     pageSettings: { ...PAGE_SETTINGS, marginsMm: validatePageMargins(settings.marginsMm) },
-    fields: validateFields(value.fields), roles: validateRoles(value.roles), fieldTables,
+    fields: validateFields(value.fields, tableFields), roles: validateRoles(value.roles), fieldTables,
   };
   validateTemplate(asJsonRuntimeTemplate(template), schema);
   return template;
@@ -578,7 +597,10 @@ export async function readTemplateFile(file: File, schema: Schema): Promise<Html
   if (file.size > 5 * 1024 * 1024) {
     throw new Error('模板文件不能超过 5MB');
   }
-  return validateHtmlTemplate(JSON.parse(await file.text()), schema);
+  const value: unknown = JSON.parse(await file.text());
+  return isRecord(value) && value.format === 'html'
+    ? validateHtmlTemplate(value, schema)
+    : convertJsonTemplateToHtml(validateTemplate(value, schema));
 }
 
 export function createSanitizedPrintHtml(editor: Editor): string {
@@ -697,6 +719,7 @@ export function createSanitizedPrintHtml(editor: Editor): string {
       print-color-adjust: exact;
     }
     th p, td p { min-height: 1.7em; margin: 0; }
+    th .pdf-inline-field, td .pdf-inline-field { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
     tr { break-inside: avoid; }
   </style></head><body>${cleanBody}</body></html>`;
 }

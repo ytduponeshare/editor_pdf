@@ -1,0 +1,19 @@
+    @page { size: A4 portrait; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body { color: #111827; font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.7; }
+    .pdf-page { --page-safe-left: {{left}}mm; --page-safe-top: {{top}}mm; position: relative; width: 210mm; height: 296mm; padding: {{top}}mm {{right}}mm {{bottom}}mm {{left}}mm; overflow: hidden; break-before: page; page-break-before: always; }
+    .pdf-page:first-child { break-before: auto; page-break-before: auto; }
+    p { min-height: 1.7em; margin: 0 0 .75em; line-height: 1.7; }
+    h1 { font-size: 28px; } h2 { font-size: 22px; } h3 { font-size: 18px; } h1 { margin: 0 0 .8em; line-height: 1.35; } h2 { margin: 0 0 .7em; line-height: 1.4; } h3 { margin: 0 0 .65em; line-height: 1.45; } h1, h2, h3 { break-after: avoid; }
+    ul, ol { margin: 0 0 .75em; padding-left: 2em; }
+    .pdf-inline-field { display: inline-block; min-height: 1.35em; border-bottom: 1px solid #111827; vertical-align: baseline; }
+    .pdf-inline-field--signed { padding: 0 3px; text-align: center; }
+    .pdf-page-overlay { position: absolute; z-index: 2; top: calc(var(--page-safe-top) + var(--field-y)); left: calc(var(--page-safe-left) + var(--field-x)); width: var(--field-width); height: var(--field-height); background: transparent; }
+    .pdf-layout-anchor { position: relative; width: 100%; break-inside: avoid; page-break-inside: avoid; }
+    .pdf-field-placeholder { display: grid; width: 100%; height: 100%; place-items: center; border: 1px dashed #7c8ba1; color: #667085; background: transparent; font-size: 13px; }
+    .pdf-signature-image, .pdf-seal-image { display: block; width: 100%; height: 100%; object-fit: contain; }
+    table { width: 100%; margin: 0 0 .85em; border-top: 1px solid #6b7280; border-left: 1px solid #6b7280; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+    th, td { position: relative; min-width: 0; padding: 7px 8px; border: 0; border-right: 1px solid #6b7280; border-bottom: 1px solid #6b7280; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    th { background: #f2f4f7; font-weight: 600; text-align: left; print-color-adjust: exact; }
+    th p, td p { margin: 0; } th .pdf-inline-field, td .pdf-inline-field { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; } tr { break-inside: avoid; }

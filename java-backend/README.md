@@ -1,22 +1,11 @@
-# Java HTML PDF 服务
+# Java HTML 合同后端
 
-独立实现方案二：受限 HTML → Java/Jsoup → Chromium → PDF。
+从仓库根目录运行 `npm run dev:java` 或 `mvn -f java-backend/pom.xml compile exec:java`。
 
-在仓库根目录运行 `npm run dev:java`，或在本目录运行：
+Java 17、Jsoup、Jackson、SQLite JDBC 提供完整模板/合同演示 API。`HtmlTemplate` 校验受限 HTML 元数据、展开快照表格并绑定签署数据；`ChromiumPdf` 使用 Java WebSocket 直接调用 Chromium CDP，执行 `resources/pagination.js` 后打印。没有 Node 代理或 Playwright 驱动。
 
-```bash
-mvn compile exec:java
-```
+默认端口为 3202；可配置 `JAVA_PDF_PORT`、`CHROMIUM_PATH`、`SIGNING_DB_PATH`。请从仓库根目录启动，以便默认数据库落在 `java-backend/data/editor_pdf.sqlite`。
 
-默认监听 `127.0.0.1:3202`。`JAVA_PDF_PORT` 可修改端口；`CHROMIUM_PATH` 可指定 Chrome/Chromium 可执行文件。
+数据库在首次启动时从 `resources/templates/` 和 `resources/catalog/` 初始化，不读取原仓库数据库。正常关闭时停止 HTTP 工作线程并关闭 SQLite。
 
-服务提供 HTML PDF 导出、健康检查及编辑器示例字段目录。PDF 接口为 `POST /api/pdf/html`，请求体是完整打印 HTML，响应为 PDF。Java 使用 Jsoup 验证标签、属性、布局锚点和 CSS，再启动 Chromium CLI；没有 JSON PDF 代理或 Node 渲染服务。
-
-```bash
-mvn test
-bash smoke-test.sh
-```
-
-`smoke-test.sh` 默认请求 `http://127.0.0.1:3202`，可以通过 `JAVA_PDF_URL` 覆盖。验证输出位于 `target/smoke/`。
-
-详细模板协议、字段目录接口和安全边界见仓库根目录的 README。
+运行 `mvn -f java-backend/pom.xml test` 检查协议、图片和持久化；启动后执行 `npm run test:pdf`、`npm run test:demo-flow`、`npm run test:business-api` 检查实际 PDF 与签署流。接口、功能、环境要求和演示边界见根目录 README。

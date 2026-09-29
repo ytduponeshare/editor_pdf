@@ -19,14 +19,16 @@ final class HtmlSanitizer {
     private static final Set<String> ALLOWED_TAGS = Set.of(
         "html", "head", "meta", "style", "body", "section", "p", "h1", "h2", "h3",
         "strong", "em", "u", "s", "ul", "ol", "li", "br", "span", "div", "table",
-        "tbody", "thead", "tr", "th", "td", "colgroup", "col"
+        "tbody", "thead", "tr", "th", "td", "colgroup", "col", "img"
     );
     private static final Set<String> GLOBAL_ATTRIBUTES = Set.of(
         "class", "style", "data-contract-page", "data-page-id", "data-break-type",
         "data-table-id", "data-fragment-id", "data-continuation", "data-row-id",
         "data-repeated-header", "data-source-row-id", "data-contract-anchor",
         "data-anchor-id", "data-anchor-name", "data-reserved-height", "data-position-mode",
-        "data-anchor-align", "data-anchor-offset-x", "data-anchor-offset-y"
+        "data-anchor-align", "data-anchor-offset-x", "data-anchor-offset-y",
+        "data-contract-field", "data-contract-overlay", "data-ref-id", "data-field-id", "data-field-type",
+        "data-field-name", "data-width", "data-height", "data-x", "data-y", "data-bound-column", "data-table-field"
     );
     private static final Set<String> TABLE_ATTRIBUTES = Set.of("colspan", "rowspan", "colwidth");
     private static final Pattern CSS_COMMENT = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
@@ -58,8 +60,10 @@ final class HtmlSanitizer {
 
         Safelist bodySafelist = new Safelist()
             .addTags("section", "p", "h1", "h2", "h3", "strong", "em", "u", "s", "ul", "ol",
-                "li", "br", "span", "div", "table", "tbody", "thead", "tr", "th", "td", "colgroup", "col")
+                "li", "br", "span", "div", "table", "tbody", "thead", "tr", "th", "td", "colgroup", "col", "img")
             .addAttributes(":all", GLOBAL_ATTRIBUTES.toArray(String[]::new))
+            .addAttributes("img", "src", "alt")
+            .addProtocols("img", "src", "data")
             .addAttributes("th", TABLE_ATTRIBUTES.toArray(String[]::new))
             .addAttributes("td", TABLE_ATTRIBUTES.toArray(String[]::new))
             .addAttributes("col", "span", "style");
@@ -85,6 +89,9 @@ final class HtmlSanitizer {
             if (tag.equals("#root")) continue;
             if (!ALLOWED_TAGS.contains(tag)) {
                 throw new IllegalArgumentException("Unsupported HTML element: " + tag);
+            }
+            if (tag.equals("img") && !ImageData.valid(element.attr("src"), false)) {
+                throw new IllegalArgumentException("Unsupported image asset");
             }
             for (Attribute attribute : element.attributes()) {
                 String name = attribute.getKey().toLowerCase(Locale.ROOT);
@@ -135,6 +142,7 @@ final class HtmlSanitizer {
     }
 
     private static boolean isAllowedAttribute(String tag, String name) {
+        if (tag.equals("img") && (name.equals("src") || name.equals("alt"))) return true;
         if (GLOBAL_ATTRIBUTES.contains(name)) return true;
         if ((tag.equals("th") || tag.equals("td")) && TABLE_ATTRIBUTES.contains(name)) return true;
         if (tag.equals("col") && (name.equals("span") || name.equals("style"))) return true;

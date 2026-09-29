@@ -16,17 +16,9 @@
     {
       "id": "vesting-002",
       "values": {
-        "date": "2026-02-15",
-        "quantity": "1000",
-        "status": "已归属"
-      }
-    },
-    {
-      "id": "vesting-003",
-      "values": {
-        "date": "2026-03-15",
-        "quantity": "1000",
-        "status": "已归属"
+        "date": "2026-07-15",
+        "quantity": "500",
+        "status": "待归属"
       }
     }
   ]

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { getSchema, type Editor } from '@tiptap/core';
 import { JSDOM } from 'jsdom';
 import createDOMPurify from 'dompurify';
 import { createEditorExtensions } from '../src/editor/extensions';
-import { createSanitizedPrintHtml, hydrateTemplateSource, serializeHtmlTemplate, validateHtmlTemplate } from '../src/editor/template';
+import { convertJsonTemplateToHtml, createSanitizedPrintHtml, hydrateTemplateSource, serializeHtmlTemplate, serializeTemplate, validateHtmlTemplate } from '../src/editor/template';
 import { PAGE_SETTINGS } from '../src/editor/types';
 
 const dom = new JSDOM();
@@ -23,6 +24,10 @@ const document = {
 const editor = { getJSON: () => document } as unknown as Editor;
 const template = serializeHtmlTemplate(editor);
 const restored = validateHtmlTemplate(template, schema);
+const migrated = validateHtmlTemplate(convertJsonTemplateToHtml(serializeTemplate(editor)), schema);
+assert.deepEqual(migrated.fields, template.fields);
+assert.deepEqual(migrated.fieldTables, template.fieldTables);
+assert.match(migrated.html, /data-contract-field/);
 const runtime = hydrateTemplateSource(restored);
 assert.deepEqual(restored.roles, template.roles);
 assert.deepEqual(restored.fields, template.fields);
@@ -34,5 +39,14 @@ assert.doesNotMatch(createSanitizedPrintHtml(editor), /data-contract-field|data-
 assert.throws(() => validateHtmlTemplate({ ...template, formatVersion: 2 }, schema), /版本/);
 assert.throws(() => validateHtmlTemplate({ ...template, fields: [] }, schema), /字段/);
 assert.throws(() => validateHtmlTemplate({ ...template, pageSettings: { ...template.pageSettings, marginsMm: { top: 0, right: 20, bottom: 20, left: 20 } } }, schema), /页边距/);
+for (const id of ['template-demo-html-001', 'template-demo-html-long-table-001', 'template-demo-html-dynamic-long-table-001']) {
+  const seed = JSON.parse(readFileSync(`java-backend/src/main/resources/templates/${id}.json`, 'utf8')).template;
+  assert.doesNotThrow(() => validateHtmlTemplate(seed, schema), 'Read-only table bindings must survive template import');
+  const unassigned = seed.fields.find((field: { roleId?: string; binding?: unknown }) => field.binding && !field.roleId);
+  if (unassigned) {
+    seed.html += `<section data-contract-page data-page-id="illegal-extra" data-break-type="manual"><p><span data-contract-field data-ref-id="illegal-ref" data-field-id="${unassigned.id}" data-field-type="${unassigned.type}" data-field-name="${unassigned.name}" data-width="130"></span></p></section>`;
+    assert.throws(() => validateHtmlTemplate(seed, schema), /字段表格/);
+  }
+}
 dom.window.close();
 console.log('PASS: HTML template round trip preserves roles, fields and formatting; invalid metadata is rejected; print HTML drops editor field metadata');

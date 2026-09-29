@@ -5,10 +5,56 @@ import {
   type NodeViewProps,
 } from '@tiptap/react';
 import { useEffect, useState } from 'react';
+import { useSigningContext } from '../../signing/context';
+import { InlineTextInput } from '../../signing/InlineTextInput';
+
+function SigningInlineField({ node }: Pick<NodeViewProps, 'node'>) {
+  const signing = useSigningContext();
+  if (!signing) return null;
+  const field = signing.fields[node.attrs.fieldId];
+  const tableKey = node.attrs.tableId && node.attrs.rowId && node.attrs.boundColumn
+    ? `${node.attrs.tableId}:${node.attrs.rowId}:${node.attrs.boundColumn}` : '';
+  const tableValue = tableKey ? signing.tableValues[tableKey] : undefined;
+  const flowText = (field?.type || node.attrs.fieldType) === 'text' && !node.attrs.boundColumn;
+  const width = node.attrs.width || DEFAULT_WIDTH;
+  const editable = field?.roleId === signing.roleId && (field.type === 'text' && field.binding?.sourceId === 'system' || !!tableKey && field?.roleId === signing.roleId);
+  if (!editable) {
+    return <NodeViewWrapper as="span" className={`signing-field signing-field--readonly${flowText ? ' signing-field--flow' : ''}`} contentEditable={false}>{tableValue || signing.values[node.attrs.fieldId] || node.attrs.fieldName}</NodeViewWrapper>;
+  }
+  const binding = field.binding;
+  const common = {
+    value: tableKey ? tableValue || '' : signing.values[field.id] || '',
+    'aria-label': binding?.fieldName || field.name,
+    'aria-invalid': signing.invalidFieldIds.has(field.id),
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => tableKey
+      ? signing.setTableValue(tableKey, event.target.value)
+      : signing.setValue(field.id, event.target.value),
+  };
+  if (flowText && (!binding?.inputType || binding.inputType === 'text')) {
+    return <NodeViewWrapper as="span" className={`signing-field signing-field--flow${signing.invalidFieldIds.has(field.id) ? ' is-invalid' : ''}`} contentEditable={false}>
+      <InlineTextInput value={common.value} label={common['aria-label']} invalid={common['aria-invalid']} width={width} onChange={value => signing.setValue(field.id, value)} />
+    </NodeViewWrapper>;
+  }
+  return (
+    <NodeViewWrapper as="span" className={`signing-field${signing.invalidFieldIds.has(field.id) ? ' is-invalid' : ''}`} style={{ width: `${width}px` }} contentEditable={false}>
+      {binding?.inputType === 'select' ? (
+        <select {...common}><option value="">请选择</option>{binding.options?.map(option => <option key={option} value={option}>{option}</option>)}</select>
+      ) : (
+        <input {...common} type={binding?.inputType === 'date' || field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'} placeholder={binding?.fieldName || field.name} maxLength={binding?.inputType === 'text' || field.type === 'text' ? 200 : undefined} />
+      )}
+    </NodeViewWrapper>
+  );
+}
 
 const DEFAULT_WIDTH = 120;
 const MIN_WIDTH = 60;
 const MAX_WIDTH = 400;
+
+function InlineFieldNodeView(props: NodeViewProps) {
+  const signing = useSigningContext();
+  if (signing) return <SigningInlineField node={props.node} />;
+  return <DesignInlineFieldNodeView {...props} />;
+}
 
 function DesignInlineFieldNodeView({ node, selected, updateAttributes, editor, getPos }: NodeViewProps) {
   const [width, setWidth] = useState<number>(node.attrs.width || DEFAULT_WIDTH);
@@ -153,6 +199,6 @@ export const InlineField = Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(DesignInlineFieldNodeView);
+    return ReactNodeViewRenderer(InlineFieldNodeView);
   },
 });

@@ -1,6 +1,14 @@
-import type { PdfExportResult } from '../editor/types';
+import type { ContractTemplateSource, PdfExportResult } from '../editor/types';
+
+interface PdfPreviewData {
+  fields: Array<{ fieldId: string; value: string }>;
+  signatures: Array<{ fieldId: string; dataUrl: string }>;
+  seals: Array<{ fieldId: string; dataUrl: string }>;
+  tableValues: Array<{ tableId: string; rowId: string; columnId: string; value: string }>;
+}
 
 export interface PdfExportService {
+  exportTemplatePdf(template: ContractTemplateSource, signed: PdfPreviewData): Promise<PdfExportResult>;
   exportHtmlPdf(html: string): Promise<PdfExportResult>;
 }
 
@@ -47,6 +55,10 @@ class HttpPdfExportService implements PdfExportService {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 
     return { ok: true, requestId: response.headers.get('X-Request-Id') || '' };
+  }
+
+  exportTemplatePdf(template: ContractTemplateSource, signed: PdfPreviewData): Promise<PdfExportResult> {
+    return this.request('/api/pdf/template', JSON.stringify({ template, signed }), 'application/json');
   }
 
   exportHtmlPdf(html: string): Promise<PdfExportResult> {

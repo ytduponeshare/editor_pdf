@@ -23,8 +23,13 @@ interface EditorToolbarProps {
   onDownload: () => void;
   onExportHtml: () => void;
   onExportHtmlPdf: () => void;
+  onStartSigning: () => void;
+  onOpenSignedFiles: () => void;
   isExporting: boolean;
   saveLabel: string;
+  onSaveTemplate?: () => void;
+  onBack?: () => void;
+  hideLegacySigning?: boolean;
 }
 
 interface ToolbarButtonProps {
@@ -178,8 +183,13 @@ export function EditorToolbar({
   onDownload,
   onExportHtml,
   onExportHtmlPdf,
+  onStartSigning,
+  onOpenSignedFiles,
   isExporting,
   saveLabel,
+  onSaveTemplate,
+  onBack,
+  hideLegacySigning,
 }: EditorToolbarProps) {
   const [customLineHeight, setCustomLineHeight] = useState('2');
   const headingLevel = editor.isActive('heading', { level: 1 })
@@ -364,11 +374,16 @@ export function EditorToolbar({
         <ToolbarButton label="删表" title="删除整张逻辑表格（包括所有续页片段）" disabled={!editor.isActive('table')} onClick={() => deleteLogicalTable(editor)} />
       </div>
       <div className="editor-toolbar__spacer" />
+      {onBack ? <button type="button" className="secondary-action" onClick={onBack}>返回模板列表</button> : null}
       <span className="save-status">{saveLabel}</span>
-      <button type="button" className="secondary-action" onClick={onImport}>导入模板包</button>
+      {onSaveTemplate ? <button type="button" className="primary-action" onClick={onSaveTemplate}>保存到模板库</button> : null}
+      <button type="button" className="secondary-action" onClick={onImport}>导入模板</button>
       <button type="button" className="secondary-action" onClick={onDownload}>下载模板包</button>
-      <div className="pdf-export-actions" aria-label="PDF 导出">
-        <button type="button" className="secondary-action" disabled={isExporting} onClick={onExportHtmlPdf}>{isExporting ? '导出中…' : '导出 PDF'}</button>
+      {!hideLegacySigning ? <button type="button" className="secondary-action" onClick={onStartSigning}>发起签署</button> : null}
+      {!hideLegacySigning ? <button type="button" className="secondary-action" onClick={onOpenSignedFiles}>合同记录</button> : null}
+      <div className="pdf-export-actions" aria-label="PDF 导出方案">
+        <span className="pdf-export-label">HTML → Java/Jsoup → Chromium → PDF</span>
+        <button type="button" className="secondary-action" disabled={isExporting} onClick={onExportHtmlPdf}>HTML 导出 PDF</button>
       </div>
       <button type="button" className="secondary-action" onClick={onExportHtml}>下载 HTML</button>
     </header>

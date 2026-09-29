@@ -1,0 +1,162 @@
+{
+  "id": "template-demo-html-001",
+  "name": "股权归属确认协议",
+  "template": {
+    "format": "html",
+    "formatVersion": 1,
+    "pageSettings": {
+      "size": "A4",
+      "orientation": "portrait",
+      "marginsMm": {
+        "top": 20,
+        "right": 20,
+        "bottom": 20,
+        "left": 20
+      },
+      "printStyleVersion": "contract-a4-v2"
+    },
+    "roles": [
+      {
+        "id": "party-a",
+        "name": "甲方"
+      },
+      {
+        "id": "party-b",
+        "name": "乙方"
+      }
+    ],
+    "fields": [
+      {
+        "id": "name-party-a",
+        "name": "甲方姓名",
+        "type": "text",
+        "roleId": "party-a",
+        "binding": {
+          "version": 1,
+          "sourceId": "system",
+          "fieldId": "name",
+          "type": "text",
+          "sourceName": "系统字段",
+          "fieldName": "姓名",
+          "kind": "category",
+          "inputType": "text"
+        }
+      },
+      {
+        "id": "signature-party-a",
+        "name": "甲方签名",
+        "type": "signature",
+        "roleId": "party-a"
+      },
+      {
+        "id": "seal-party-a",
+        "name": "甲方企业章",
+        "type": "companySeal",
+        "roleId": "party-a"
+      },
+      {
+        "id": "name-party-b",
+        "name": "乙方姓名",
+        "type": "text",
+        "roleId": "party-b",
+        "binding": {
+          "version": 1,
+          "sourceId": "system",
+          "fieldId": "name",
+          "type": "text",
+          "sourceName": "系统字段",
+          "fieldName": "姓名",
+          "kind": "category",
+          "inputType": "text"
+        }
+      },
+      {
+        "id": "signature-party-b",
+        "name": "乙方签名",
+        "type": "signature",
+        "roleId": "party-b"
+      },
+      {
+        "id": "table-date-template",
+        "name": "归属日期",
+        "type": "date",
+        "binding": {
+          "version": 1,
+          "sourceId": "vesting",
+          "fieldId": "date",
+          "type": "date",
+          "sourceName": "归属记录",
+          "fieldName": "归属日期",
+          "kind": "record",
+          "record": 1
+        }
+      },
+      {
+        "id": "table-quantity-template",
+        "name": "归属数量",
+        "type": "number",
+        "binding": {
+          "version": 1,
+          "sourceId": "vesting",
+          "fieldId": "quantity",
+          "type": "number",
+          "sourceName": "归属记录",
+          "fieldName": "归属数量",
+          "kind": "record",
+          "record": 1
+        }
+      },
+      {
+        "id": "table-confirm-template",
+        "name": "员工确认",
+        "type": "text",
+        "roleId": "party-b"
+      }
+    ],
+    "fieldTables": [
+      {
+        "tableId": "vesting-table",
+        "config": {
+          "version": 1,
+          "mode": "custom",
+          "sourceId": "vesting",
+          "rows": 1,
+          "roleId": "party-b",
+          "roleName": "乙方",
+          "columns": [
+            {
+              "id": "date",
+              "title": "归属日期",
+              "type": "date",
+              "binding": {
+                "kind": "category",
+                "sourceId": "vesting",
+                "fieldId": "date"
+              }
+            },
+            {
+              "id": "quantity",
+              "title": "归属数量",
+              "type": "number",
+              "binding": {
+                "kind": "category",
+                "sourceId": "vesting",
+                "fieldId": "quantity"
+              }
+            },
+            {
+              "id": "confirm",
+              "title": "员工确认",
+              "type": "text",
+              "binding": {
+                "kind": "control",
+                "type": "text"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "html": "<section data-contract-page data-page-id=\"demo-page-1\" data-break-type=\"root\">\n        <h1 style=\"text-align: center\">股权归属确认协议</h1>\n        <p>甲方代表：<span data-contract-field data-ref-id=\"ref-name-party-a\" data-field-id=\"name-party-a\" data-field-type=\"text\" data-field-name=\"甲方姓名\" data-width=\"130\"></span></p>\n        <p>乙方员工：<span data-contract-field data-ref-id=\"ref-name-party-b\" data-field-id=\"name-party-b\" data-field-type=\"text\" data-field-name=\"乙方姓名\" data-width=\"130\"></span></p>\n        <p>双方确认以下归属记录真实有效，并按照约定完成签署。</p>\n        <table data-table-id=\"vesting-table\" data-fragment-id=\"vesting-table-fragment-1\">\n          <tbody>\n            <tr data-row-id=\"header-row\">\n              <th><p>归属日期</p></th>\n              <th><p>归属数量</p></th>\n              <th><p>员工确认</p></th>\n            </tr>\n            <tr data-row-id=\"template-row\">\n              <td><p><span data-contract-field data-ref-id=\"ref-table-date\" data-field-id=\"table-date-template\" data-field-type=\"date\" data-field-name=\"归属日期\" data-width=\"130\" data-bound-column=\"date\"></span></p></td>\n              <td><p><span data-contract-field data-ref-id=\"ref-table-quantity\" data-field-id=\"table-quantity-template\" data-field-type=\"number\" data-field-name=\"归属数量\" data-width=\"130\" data-bound-column=\"quantity\"></span></p></td>\n              <td><p><span data-contract-field data-ref-id=\"ref-table-confirm\" data-field-id=\"table-confirm-template\" data-field-type=\"text\" data-field-name=\"员工确认\" data-width=\"130\" data-bound-column=\"confirm\"></span></p></td>\n            </tr>\n          </tbody>\n        </table>\n        <p>签署后由系统生成不可变的 PDF 文件。</p>\n        <div data-contract-overlay data-ref-id=\"ref-signature-party-a\" data-field-id=\"signature-party-a\" data-field-type=\"signature\" data-field-name=\"甲方签名\" data-width=\"170\" data-height=\"70\" data-x=\"30\" data-y=\"510\"></div>\n        <div data-contract-overlay data-ref-id=\"ref-seal-party-a\" data-field-id=\"seal-party-a\" data-field-type=\"companySeal\" data-field-name=\"甲方企业章\" data-width=\"110\" data-height=\"110\" data-x=\"220\" data-y=\"490\"></div>\n        <div data-contract-overlay data-ref-id=\"ref-signature-party-b\" data-field-id=\"signature-party-b\" data-field-type=\"signature\" data-field-name=\"乙方签名\" data-width=\"170\" data-height=\"70\" data-x=\"400\" data-y=\"510\"></div>\n      </section>"
+  }
+}
