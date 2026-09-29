@@ -1,0 +1,17 @@
+{
+  "source": {
+    "id": "employee",
+    "name": "员工信息",
+    "kind": "category"
+  },
+  "records": [
+    {
+      "id": "employee-current",
+      "values": {
+        "name": "示例员工",
+        "code": "EMP-001",
+        "phone": "13800000000"
+      }
+    }
+  ]
+}

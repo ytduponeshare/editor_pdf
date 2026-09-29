@@ -1,0 +1,33 @@
+{
+  "source": {
+    "id": "long-contract-items",
+    "name": "动态超高协议明细",
+    "kind": "list"
+  },
+  "records": [
+    {
+      "id": "item-001",
+      "values": {
+        "code": "ITEM-001",
+        "description": "独立编辑器协议明细示例",
+        "status": "有效"
+      }
+    },
+    {
+      "id": "item-002",
+      "values": {
+        "code": "ITEM-002",
+        "description": "独立编辑器协议明细示例",
+        "status": "有效"
+      }
+    },
+    {
+      "id": "item-003",
+      "values": {
+        "code": "ITEM-003",
+        "description": "独立编辑器协议明细示例",
+        "status": "有效"
+      }
+    }
+  ]
+}

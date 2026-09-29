@@ -1,0 +1,19 @@
+{
+  "fields": [
+    {
+      "id": "name",
+      "name": "员工姓名",
+      "type": "text"
+    },
+    {
+      "id": "code",
+      "name": "员工编号",
+      "type": "text"
+    },
+    {
+      "id": "phone",
+      "name": "手机号",
+      "type": "phone"
+    }
+  ]
+}

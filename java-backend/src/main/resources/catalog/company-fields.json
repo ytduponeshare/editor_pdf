@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {
+      "id": "name",
+      "name": "企业名称",
+      "type": "text"
+    },
+    {
+      "id": "address",
+      "name": "企业地址",
+      "type": "text"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "fields": [
+    {
+      "id": "code",
+      "name": "明细编码",
+      "type": "text"
+    },
+    {
+      "id": "description",
+      "name": "协议说明",
+      "type": "text"
+    },
+    {
+      "id": "status",
+      "name": "状态",
+      "type": "text"
+    }
+  ]
+}

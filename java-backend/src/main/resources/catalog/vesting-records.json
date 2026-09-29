@@ -1,0 +1,33 @@
+{
+  "source": {
+    "id": "vesting",
+    "name": "归属记录",
+    "kind": "list"
+  },
+  "records": [
+    {
+      "id": "vesting-001",
+      "values": {
+        "date": "2026-01-15",
+        "quantity": "1000",
+        "status": "已归属"
+      }
+    },
+    {
+      "id": "vesting-002",
+      "values": {
+        "date": "2026-02-15",
+        "quantity": "1000",
+        "status": "已归属"
+      }
+    },
+    {
+      "id": "vesting-003",
+      "values": {
+        "date": "2026-03-15",
+        "quantity": "1000",
+        "status": "已归属"
+      }
+    }
+  ]
+}

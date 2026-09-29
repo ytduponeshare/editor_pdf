@@ -1,0 +1,19 @@
+{
+  "fields": [
+    {
+      "id": "date",
+      "name": "归属日期",
+      "type": "date"
+    },
+    {
+      "id": "quantity",
+      "name": "归属数量",
+      "type": "number"
+    },
+    {
+      "id": "status",
+      "name": "归属状态",
+      "type": "text"
+    }
+  ]
+}

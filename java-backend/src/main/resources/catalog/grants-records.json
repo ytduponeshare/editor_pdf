@@ -1,0 +1,16 @@
+{
+  "source": {
+    "id": "grants",
+    "name": "授予记录",
+    "kind": "list"
+  },
+  "records": [
+    {
+      "id": "grant-001",
+      "values": {
+        "date": "2025-12-01",
+        "price": "12.50"
+      }
+    }
+  ]
+}

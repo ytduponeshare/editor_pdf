@@ -1,0 +1,29 @@
+{
+  "sources": [
+    {
+      "id": "long-contract-items",
+      "name": "动态超高协议明细",
+      "kind": "list"
+    },
+    {
+      "id": "vesting",
+      "name": "归属记录",
+      "kind": "list"
+    },
+    {
+      "id": "grants",
+      "name": "授予记录",
+      "kind": "list"
+    },
+    {
+      "id": "employee",
+      "name": "员工信息",
+      "kind": "category"
+    },
+    {
+      "id": "company",
+      "name": "企业信息",
+      "kind": "category"
+    }
+  ]
+}

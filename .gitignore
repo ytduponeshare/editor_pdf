@@ -1,0 +1,8 @@
+node_modules/
+dist/
+java-backend/target/
+output/
+tmp/
+.DS_Store
+*.local
+.env

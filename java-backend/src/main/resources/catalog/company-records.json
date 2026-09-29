@@ -1,0 +1,16 @@
+{
+  "source": {
+    "id": "company",
+    "name": "企业信息",
+    "kind": "category"
+  },
+  "records": [
+    {
+      "id": "company-current",
+      "values": {
+        "name": "示例企业",
+        "address": "上海市浦东新区"
+      }
+    }
+  ]
+}

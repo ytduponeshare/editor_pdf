@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @page { size: A4 portrait; margin: 0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #111827; font-family: Arial, "PingFang SC", sans-serif; }
+    .contract-page { width: 210mm; height: 296mm; padding: 20mm; break-after: page; }
+    h1 { text-align: center; }
+  </style>
+</head>
+<body>
+  <section class="contract-page" data-contract-page="true" data-page-id="java-html-smoke-page">
+    <h1>方案二：HTML 经 Java/Jsoup 和 Chromium 导出</h1>
+    <p>Java 接收受限 HTML，经过 Jsoup 白名单清洗，直接启动 Chromium 生成 PDF。</p>
+  </section>
+</body>
+</html>

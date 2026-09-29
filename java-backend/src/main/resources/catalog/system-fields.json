@@ -1,0 +1,33 @@
+{
+  "fields": [
+    {
+      "id": "name",
+      "name": "姓名",
+      "type": "text",
+      "inputType": "text"
+    },
+    {
+      "id": "birthday",
+      "name": "生日",
+      "type": "text",
+      "inputType": "date"
+    },
+    {
+      "id": "gender",
+      "name": "性别",
+      "type": "text",
+      "inputType": "select",
+      "options": [
+        "男",
+        "女",
+        "其他"
+      ]
+    },
+    {
+      "id": "date",
+      "name": "日期",
+      "type": "text",
+      "inputType": "date"
+    }
+  ]
+}

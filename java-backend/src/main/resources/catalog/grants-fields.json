@@ -1,0 +1,14 @@
+{
+  "fields": [
+    {
+      "id": "date",
+      "name": "授予日期",
+      "type": "date"
+    },
+    {
+      "id": "price",
+      "name": "授予价格",
+      "type": "number"
+    }
+  ]
+}
