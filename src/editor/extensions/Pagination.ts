@@ -207,7 +207,7 @@ function createPage(
 
 function createAutoPage(referencePage: ProseMirrorNode, children: ProseMirrorNode[]): ProseMirrorNode {
   return referencePage.type.create(
-    { pageId: createId('page'), breakType: 'auto' },
+    { pageId: createId('page'), breakType: 'auto', sectionId: referencePage.attrs.sectionId },
     Fragment.fromArray(children),
   );
 }
@@ -1327,6 +1327,7 @@ export const Pagination = Extension.create({
           const contentObserver = new MutationObserver(() => schedule());
           contentObserver.observe(view.dom, { childList: true, characterData: true, subtree: true });
           window.addEventListener('resize', handleResize);
+          view.dom.addEventListener('load', handleResize, true);
           document.fonts?.ready.then(schedule).catch(() => undefined);
           schedule();
 
@@ -1338,6 +1339,7 @@ export const Pagination = Extension.create({
               window.clearTimeout(cleanupTimer);
               contentObserver.disconnect();
               window.removeEventListener('resize', handleResize);
+              view.dom.removeEventListener('load', handleResize, true);
             },
           };
         },

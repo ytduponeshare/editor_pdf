@@ -13,6 +13,8 @@ import { SignatureChooser } from '../../components/SignatureChooser';
 import { SealPicker } from '../../components/SealPicker';
 import { useSigningContext } from '../../signing/context';
 import { PAGINATION_META } from './Pagination';
+import { moveSigningField } from '../commands';
+import { migrateSigningAreas } from '../signingAreas';
 
 type ResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 
@@ -52,119 +54,67 @@ function getPageContentAtPoint(x: number, y: number): HTMLElement | null {
     }) || null;
 }
 
-function findPagePositionById(
-  editor: NodeViewProps['editor'],
-  pageId: string,
-): { position: number; nodeSize: number } | null {
-  let result: { position: number; nodeSize: number } | null = null;
-  editor.state.doc.forEach((page, position) => {
-    if (page.type.name === 'page' && page.attrs.pageId === pageId) {
-      result = { position, nodeSize: page.nodeSize };
-    }
-  });
-  return result;
+function overlayContainer(element: HTMLElement | null): HTMLElement | null {
+  return element?.closest<HTMLElement>('.signing-area__content, .contract-page__content') || null;
 }
 
-function findPageInDocument(
-  documentNode: ProseMirrorNode,
-  pageId: string,
-): { position: number; node: ProseMirrorNode } | null {
-  let result: { position: number; node: ProseMirrorNode } | null = null;
-  documentNode.forEach((node, position) => {
-    if (node.type.name === 'page' && node.attrs.pageId === pageId) {
-      result = { position, node };
-    }
-  });
-  return result;
+function overlayBounds(content: HTMLElement): DOMRect {
+  const rect = content.getBoundingClientRect();
+  const page = content.closest<HTMLElement>('.contract-page__content');
+  return page && content !== page
+    ? new DOMRect(rect.x, rect.y, rect.width, page.getBoundingClientRect().height - 32)
+    : rect;
 }
 
-function owningPageId(documentNode: ProseMirrorNode, position: number): string | null {
-  const resolved = documentNode.resolve(position);
-  for (let depth = resolved.depth; depth > 0; depth -= 1) {
-    const node = resolved.node(depth);
-    if (node.type.name === 'page') return String(node.attrs.pageId || '');
-  }
-  return null;
+function migratePageOverlays(view: EditorView): boolean {
+  let needed = false;
+  view.state.doc.forEach(page => page.forEach(child => {
+    if (['pageOverlay', 'layoutAnchor', 'signingArea'].includes(child.type.name)) needed = true;
+  }));
+  if (!needed) return false;
+  const content = view.dom.querySelector<HTMLElement>('.contract-page__content');
+  if (!content) return false;
+  const migrated = migrateSigningAreas(view.state.doc.toJSON(), content.getBoundingClientRect().width);
+  const doc = view.state.schema.nodeFromJSON(migrated);
+  const transaction = view.state.tr.replaceWith(0, view.state.doc.content.size, doc.content);
+  transaction.setMeta('addToHistory', false).setMeta(PAGINATION_META, true);
+  view.dispatch(transaction); return true;
 }
 
-function syncAnchoredOverlay(view: EditorView): boolean {
-  const anchors = new Map<string, { position: number; pageId: string }>();
-  const overlays: Array<{ position: number; node: ProseMirrorNode; pageId: string }> = [];
-  view.state.doc.descendants((node, position) => {
-    const pageId = owningPageId(view.state.doc, position) || '';
-    if (node.type.name === 'layoutAnchor' && typeof node.attrs.anchorId === 'string') {
-      anchors.set(node.attrs.anchorId, { position, pageId });
-    }
-    if (node.type.name === 'pageOverlay' && node.attrs.positionMode === 'anchor') {
-      overlays.push({ position, node, pageId });
-    }
-  });
-
-  for (const overlay of overlays) {
-    const anchor = anchors.get(String(overlay.node.attrs.anchorId || ''));
-    if (!anchor) continue;
-    const anchorDom = view.nodeDOM(anchor.position);
-    const anchorElement = anchorDom instanceof HTMLElement
-      ? (anchorDom.matches('[data-contract-anchor]') ? anchorDom : anchorDom.querySelector<HTMLElement>('[data-contract-anchor]'))
-      : null;
-    const targetContent = anchorElement?.closest<HTMLElement>('.contract-page__content');
-    if (!anchorElement || !targetContent) continue;
-    const contentRect = targetContent.getBoundingClientRect();
-    const anchorRect = anchorElement.getBoundingClientRect();
-    const width = Number(overlay.node.attrs.width) || 160;
-    const align = String(overlay.node.attrs.anchorAlign || 'left');
-    const baseX = align === 'center'
-      ? (contentRect.width - width) / 2
-      : align === 'right' ? contentRect.width - width : 0;
-    const nextX = Math.round(Math.max(0, Math.min(contentRect.width - width, baseX + (Number(overlay.node.attrs.anchorOffsetX) || 0))));
-    const nextY = Math.round(Math.max(0, Math.min(contentRect.height - Number(overlay.node.attrs.height), anchorRect.top - contentRect.top + (Number(overlay.node.attrs.anchorOffsetY) || 0))));
-    const nextAttrs = { ...overlay.node.attrs, x: nextX, y: nextY };
-
-    if (overlay.pageId !== anchor.pageId) {
-      let transaction = view.state.tr.delete(overlay.position, overlay.position + overlay.node.nodeSize);
-      const target = findPageInDocument(transaction.doc, anchor.pageId);
-      if (!target) continue;
-      const insertionPosition = target.position + target.node.nodeSize - 1;
-      transaction = transaction.insert(insertionPosition, overlay.node.type.create(nextAttrs));
-      if (view.state.selection instanceof NodeSelection && view.state.selection.node.attrs.refId === overlay.node.attrs.refId) {
-        transaction.setSelection(NodeSelection.create(transaction.doc, insertionPosition));
-      }
-      transaction.setMeta('addToHistory', false);
-      transaction.setMeta(PAGINATION_META, true);
-      view.dispatch(transaction);
-      return true;
-    }
-
-    if (overlay.node.attrs.x !== nextX || overlay.node.attrs.y !== nextY) {
-      const transaction = view.state.tr.setNodeMarkup(overlay.position, undefined, nextAttrs, overlay.node.marks);
-      transaction.setMeta('addToHistory', false);
-      transaction.setMeta(PAGINATION_META, true);
-      view.dispatch(transaction);
-      return true;
-    }
-  }
-  return false;
-}
-
-function SigningPageOverlayNodeView({ node }: Pick<NodeViewProps, 'node'>) {
+export function SigningFieldNodeView({ node }: Pick<NodeViewProps, 'node'>) {
   const signing = useSigningContext();
+  const anchorRef = useRef<HTMLElement | null>(null);
+  const inline = node.type.name === 'floatingField';
+  const [offset, setOffset] = useState({ x: node.attrs.offsetX, y: node.attrs.offsetY });
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    const content = anchor?.closest<HTMLElement>('.contract-page__content');
+    if (!inline || !anchor || !content) return;
+    const rect = anchor.getBoundingClientRect();
+    const bounds = content.getBoundingClientRect();
+    const x = Math.round(Math.max(bounds.left - rect.left, Math.min(node.attrs.offsetX, bounds.right - node.attrs.width - rect.left)));
+    const y = Math.round(Math.max(bounds.top - rect.top, Math.min(node.attrs.offsetY, bounds.bottom - node.attrs.height - rect.top)));
+    if (x !== offset.x || y !== offset.y) setOffset({ x, y });
+  });
   if (!signing) return null;
   const field = signing.fields[node.attrs.fieldId];
   const editable = field?.roleId === signing.roleId && (field.type === 'signature' || field.type === 'companySeal');
+  const BoxTag = inline ? 'span' : 'div';
   const completedSignature = signing.signatures[node.attrs.fieldId];
   const completedSeal = signing.seals[node.attrs.fieldId];
   return (
     <NodeViewWrapper
-      as="div"
-      className="page-overlay signing-page-overlay"
-      data-page-overlay
+      as={inline ? 'span' : 'div'}
+      className={inline ? 'floating-field__anchor signing-floating-field' : 'page-overlay signing-page-overlay'}
+      ref={anchorRef}
+      data-page-overlay={!inline || undefined}
       data-ref-id={node.attrs.refId}
       data-field-id={node.attrs.fieldId}
       contentEditable={false}
     >
-      <div
+      <BoxTag
         className={`page-overlay__box signing-page-overlay__box${signing.invalidFieldIds.has(node.attrs.fieldId) ? ' is-invalid' : ''}`}
-        style={{ left: `${node.attrs.x}px`, top: `${node.attrs.y}px`, width: `${node.attrs.width}px`, height: `${node.attrs.height}px` }}
+        style={{ left: `${inline ? offset.x : node.attrs.x}px`, top: `${inline ? offset.y : node.attrs.y}px`, width: `${node.attrs.width}px`, height: `${node.attrs.height}px` }}
         role="group"
         aria-label={node.attrs.fieldName}
       >
@@ -182,14 +132,14 @@ function SigningPageOverlayNodeView({ node }: Pick<NodeViewProps, 'node'>) {
           : completedSeal
             ? <img className="signing-page-overlay__signature" src={completedSeal} alt={`${node.attrs.fieldName}已盖章`} />
           : <span className="page-overlay__label">{node.attrs.fieldName}</span>}
-      </div>
+      </BoxTag>
     </NodeViewWrapper>
   );
 }
 
 function PageOverlayNodeView(props: NodeViewProps) {
   const signing = useSigningContext();
-  return signing ? <SigningPageOverlayNodeView node={props.node} /> : <DesignPageOverlayNodeView {...props} />;
+  return signing ? <SigningFieldNodeView node={props.node} /> : <DesignPageOverlayNodeView {...props} />;
 }
 
 function DesignPageOverlayNodeView({
@@ -217,7 +167,7 @@ function DesignPageOverlayNodeView({
   }, [node.attrs.height, node.attrs.width, node.attrs.x, node.attrs.y]);
 
   useLayoutEffect(() => {
-    const content = elementRef.current?.closest<HTMLElement>('.contract-page__content');
+    const content = overlayContainer(elementRef.current);
     if (!content) return;
     const next = clampBox(
       {
@@ -226,7 +176,7 @@ function DesignPageOverlayNodeView({
         width: node.attrs.width,
         height: node.attrs.height,
       },
-      content.getBoundingClientRect(),
+      overlayBounds(content),
       getMinimumSize(node.attrs.fieldType),
     );
     if (
@@ -262,12 +212,11 @@ function DesignPageOverlayNodeView({
     selectNode();
 
     const element = elementRef.current;
-    const initialContent = element?.closest<HTMLElement>('.contract-page__content');
+    const initialContent = overlayContainer(element);
     if (!element || !initialContent) return;
 
     const startPointer = { x: event.clientX, y: event.clientY };
     const startRect = element.getBoundingClientRect();
-    const initialPageId = initialContent.closest<HTMLElement>('.contract-page')?.dataset.pageId;
     let targetContent = initialContent;
     let latestAbsolute = { x: startRect.left, y: startRect.top };
     let moved = false;
@@ -281,13 +230,15 @@ function DesignPageOverlayNodeView({
       latestAbsolute = { x: startRect.left + dx, y: startRect.top + dy };
       const centerX = latestAbsolute.x + box.width / 2;
       const centerY = latestAbsolute.y + box.height / 2;
-      targetContent = getPageContentAtPoint(centerX, centerY) || targetContent;
+      const initialBounds = initialContent.getBoundingClientRect();
+      targetContent = centerX >= initialBounds.left && centerX <= initialBounds.right && centerY >= initialBounds.top && centerY <= initialBounds.bottom
+        ? initialContent : getPageContentAtPoint(centerX, centerY) || targetContent;
       const targetRect = targetContent.getBoundingClientRect();
       const preview = clampBox({
         ...box,
         x: latestAbsolute.x - initialContent.getBoundingClientRect().left,
         y: latestAbsolute.y - initialContent.getBoundingClientRect().top,
-      }, initialContent.getBoundingClientRect(), getMinimumSize(node.attrs.fieldType));
+      }, overlayBounds(initialContent), getMinimumSize(node.attrs.fieldType));
 
       if (targetContent === initialContent) {
         setBox(preview);
@@ -308,59 +259,18 @@ function DesignPageOverlayNodeView({
       window.removeEventListener('pointercancel', onEnd);
       if (!moved) return;
 
-      const targetPage = targetContent.closest<HTMLElement>('.contract-page');
-      const targetPageId = targetPage?.dataset.pageId;
-      const targetRect = targetContent.getBoundingClientRect();
-      const next = clampBox({
-        ...box,
-        x: latestAbsolute.x - targetRect.left,
-        y: latestAbsolute.y - targetRect.top,
-      }, targetRect, getMinimumSize(node.attrs.fieldType));
-
-      if (node.attrs.positionMode === 'anchor' && node.attrs.anchorId) {
-        const anchorElement = document.querySelector<HTMLElement>(`[data-contract-anchor][data-anchor-id="${CSS.escape(String(node.attrs.anchorId))}"]`);
-        const anchorContent = anchorElement?.closest<HTMLElement>('.contract-page__content');
-        if (anchorElement && anchorContent) {
-          const contentRect = anchorContent.getBoundingClientRect();
-          const anchorRect = anchorElement.getBoundingClientRect();
-          const localX = latestAbsolute.x - contentRect.left;
-          const localY = latestAbsolute.y - contentRect.top;
-          const baseX = node.attrs.anchorAlign === 'center'
-            ? (contentRect.width - box.width) / 2
-            : node.attrs.anchorAlign === 'right' ? contentRect.width - box.width : 0;
-          updateAttributes({
-            anchorOffsetX: Math.round(localX - baseX),
-            anchorOffsetY: Math.max(0, Math.round(localY - (anchorRect.top - contentRect.top))),
-          });
-          return;
-        }
-      }
-
-      if (!targetPageId || targetPageId === initialPageId) {
-        updateAttributes({
-          x: Math.round(next.x),
-          y: Math.round(next.y),
+      const position = getPos();
+      if (typeof position !== 'number') return;
+      // Resolve the flow position underneath the preview, rather than the dragged node itself.
+      const pointerEvents = element.style.pointerEvents;
+      element.style.pointerEvents = 'none';
+      try {
+        moveSigningField(editor, position, { ...node.attrs, width: box.width, height: box.height }, {
+          clientX: latestAbsolute.x, clientY: latestAbsolute.y,
         });
-        return;
+      } finally {
+        element.style.pointerEvents = pointerEvents;
       }
-
-      const oldPosition = getPos();
-      const target = findPagePositionById(editor, targetPageId);
-      if (typeof oldPosition !== 'number' || !target) return;
-
-      const transaction = editor.state.tr.delete(oldPosition, oldPosition + node.nodeSize);
-      const mappedPagePosition = transaction.mapping.map(target.position);
-      const targetPageNode = transaction.doc.nodeAt(mappedPagePosition);
-      if (!targetPageNode || targetPageNode.type.name !== 'page') return;
-      const insertionPosition = mappedPagePosition + targetPageNode.nodeSize - 1;
-      const movedNode = node.type.create({
-        ...node.attrs,
-        x: Math.round(next.x),
-        y: Math.round(next.y),
-      });
-      transaction.insert(insertionPosition, movedNode);
-      transaction.setSelection(NodeSelection.create(transaction.doc, insertionPosition));
-      editor.view.dispatch(transaction);
     };
 
     window.addEventListener('pointermove', onMove);
@@ -377,9 +287,9 @@ function DesignPageOverlayNodeView({
     selectNode();
 
     const element = elementRef.current;
-    const content = element?.closest<HTMLElement>('.contract-page__content');
+    const content = overlayContainer(element);
     if (!element || !content) return;
-    const bounds = content.getBoundingClientRect();
+    const bounds = overlayBounds(content);
     const startPointer = { x: event.clientX, y: event.clientY };
     const start = { ...box };
     const minimum = getMinimumSize(node.attrs.fieldType);
@@ -431,7 +341,7 @@ function DesignPageOverlayNodeView({
     if (!direction) return;
     event.preventDefault();
     event.stopPropagation();
-    const content = elementRef.current?.closest<HTMLElement>('.contract-page__content');
+    const content = overlayContainer(elementRef.current);
     if (!content) return;
     const step = event.shiftKey ? 10 : 1;
     const next = clampBox({
@@ -439,14 +349,7 @@ function DesignPageOverlayNodeView({
       x: box.x + direction.x * step,
       y: box.y + direction.y * step,
     }, content.getBoundingClientRect(), getMinimumSize(node.attrs.fieldType));
-    if (node.attrs.positionMode === 'anchor') {
-      updateAttributes({
-        anchorOffsetX: Math.round((Number(node.attrs.anchorOffsetX) || 0) + direction.x * step),
-        anchorOffsetY: Math.max(0, Math.round((Number(node.attrs.anchorOffsetY) || 0) + direction.y * step)),
-      });
-    } else {
-      updateAttributes({ x: Math.round(next.x), y: Math.round(next.y) });
-    }
+    updateAttributes({ x: Math.round(next.x), y: Math.round(next.y) });
   };
 
   return (
@@ -489,69 +392,6 @@ function DesignPageOverlayNodeView({
   );
 }
 
-function migrateLegacyFloatingFields(view: EditorView): boolean {
-  const legacy: Array<{
-    position: number;
-    node: ProseMirrorNode;
-    pageId: string;
-    x: number;
-    y: number;
-  }> = [];
-
-  view.state.doc.descendants((node, position) => {
-    if (node.type.name !== 'floatingField') return;
-    const resolved = view.state.doc.resolve(position);
-    let pageId = '';
-    for (let depth = resolved.depth; depth > 0; depth -= 1) {
-      if (resolved.node(depth).type.name === 'page') {
-        pageId = resolved.node(depth).attrs.pageId;
-        break;
-      }
-    }
-    const dom = view.nodeDOM(position);
-    const wrapper = dom instanceof HTMLElement ? dom : dom?.parentElement;
-    const box = wrapper?.querySelector<HTMLElement>('.floating-field__box');
-    const content = wrapper?.closest<HTMLElement>('.contract-page__content');
-    if (!pageId || !box || !content) return;
-    const boxRect = box.getBoundingClientRect();
-    const contentRect = content.getBoundingClientRect();
-    legacy.push({
-      position,
-      node,
-      pageId,
-      x: boxRect.left - contentRect.left,
-      y: boxRect.top - contentRect.top,
-    });
-  });
-  if (!legacy.length) return false;
-
-  const transaction = view.state.tr;
-  legacy.slice().sort((left, right) => right.position - left.position)
-    .forEach(({ position, node }) => transaction.delete(position, position + node.nodeSize));
-
-  let selectedPosition: number | null = null;
-  legacy.forEach(({ node, pageId, x, y }) => {
-    const page = findPageInDocument(transaction.doc, pageId);
-    if (!page) return;
-    const overlayType = transaction.doc.type.schema.nodes.pageOverlay;
-    const overlay = overlayType.create({
-      ...node.attrs,
-      x: Math.round(x),
-      y: Math.round(y),
-    });
-    const insertionPosition = page.position + page.node.nodeSize - 1;
-    transaction.insert(insertionPosition, overlay);
-    selectedPosition = insertionPosition;
-  });
-
-  if (selectedPosition !== null) {
-    transaction.setSelection(NodeSelection.create(transaction.doc, selectedPosition));
-  }
-  transaction.setMeta('addToHistory', false);
-  view.dispatch(transaction);
-  return true;
-}
-
 export const PageOverlay = Node.create({
   name: 'pageOverlay',
   group: 'pageOverlay',
@@ -568,11 +408,11 @@ export const PageOverlay = Node.create({
       height: { default: 80, parseHTML: element => Number(element.getAttribute('data-height')) || 80, renderHTML: attributes => ({ 'data-height': attributes.height }) },
       x: { default: 12, parseHTML: element => Number(element.getAttribute('data-x')) || 0, renderHTML: attributes => ({ 'data-x': attributes.x }) },
       y: { default: 12, parseHTML: element => Number(element.getAttribute('data-y')) || 0, renderHTML: attributes => ({ 'data-y': attributes.y }) },
-      positionMode: { default: 'page', parseHTML: element => element.getAttribute('data-position-mode') || 'page', renderHTML: attributes => ({ 'data-position-mode': attributes.positionMode }) },
-      anchorId: { default: null, parseHTML: element => element.getAttribute('data-anchor-id'), renderHTML: attributes => attributes.anchorId ? ({ 'data-anchor-id': attributes.anchorId }) : {} },
-      anchorAlign: { default: 'left', parseHTML: element => element.getAttribute('data-anchor-align') || 'left', renderHTML: attributes => ({ 'data-anchor-align': attributes.anchorAlign }) },
-      anchorOffsetX: { default: 0, parseHTML: element => Number(element.getAttribute('data-anchor-offset-x')) || 0, renderHTML: attributes => ({ 'data-anchor-offset-x': attributes.anchorOffsetX }) },
-      anchorOffsetY: { default: 0, parseHTML: element => Number(element.getAttribute('data-anchor-offset-y')) || 0, renderHTML: attributes => ({ 'data-anchor-offset-y': attributes.anchorOffsetY }) },
+      positionMode: { default: 'page', parseHTML: element => element.getAttribute('data-position-mode') || 'page', renderHTML: attributes => attributes.positionMode === 'anchor' ? { 'data-position-mode': 'anchor' } : {} },
+      anchorId: { default: null, parseHTML: element => element.getAttribute('data-anchor-id'), renderHTML: attributes => attributes.positionMode === 'anchor' && attributes.anchorId ? { 'data-anchor-id': attributes.anchorId } : {} },
+      anchorAlign: { default: 'left', parseHTML: element => element.getAttribute('data-anchor-align') || 'left', renderHTML: attributes => attributes.positionMode === 'anchor' ? { 'data-anchor-align': attributes.anchorAlign } : {} },
+      anchorOffsetX: { default: 0, parseHTML: element => Number(element.getAttribute('data-anchor-offset-x')) || 0, renderHTML: attributes => attributes.positionMode === 'anchor' ? { 'data-anchor-offset-x': attributes.anchorOffsetX } : {} },
+      anchorOffsetY: { default: 0, parseHTML: element => Number(element.getAttribute('data-anchor-offset-y')) || 0, renderHTML: attributes => attributes.positionMode === 'anchor' ? { 'data-anchor-offset-y': attributes.anchorOffsetY } : {} },
     };
   },
 
@@ -593,11 +433,11 @@ export const PageOverlay = Node.create({
         'data-height': node.attrs.height,
         'data-x': node.attrs.x,
         'data-y': node.attrs.y,
-        'data-position-mode': node.attrs.positionMode,
-        ...(node.attrs.anchorId ? { 'data-anchor-id': node.attrs.anchorId } : {}),
-        'data-anchor-align': node.attrs.anchorAlign,
-        'data-anchor-offset-x': node.attrs.anchorOffsetX,
-        'data-anchor-offset-y': node.attrs.anchorOffsetY,
+        ...(node.attrs.positionMode === 'anchor' ? {
+          'data-position-mode': 'anchor', 'data-anchor-id': node.attrs.anchorId,
+          'data-anchor-align': node.attrs.anchorAlign, 'data-anchor-offset-x': node.attrs.anchorOffsetX,
+          'data-anchor-offset-y': node.attrs.anchorOffsetY,
+        } : {}),
       }),
     ];
   },
@@ -611,7 +451,7 @@ export const PageOverlay = Node.create({
       new Plugin({
         view: (view) => {
           const run = () => {
-            if (!migrateLegacyFloatingFields(view)) syncAnchoredOverlay(view);
+            migratePageOverlays(view);
           };
           let frame = window.requestAnimationFrame(run);
           return {

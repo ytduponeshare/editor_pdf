@@ -1,12 +1,15 @@
-import { mergeAttributes, Node } from '@tiptap/core';
+import { Node } from '@tiptap/core';
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
+import { closeHistory } from '@tiptap/pm/history';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FieldType } from '../types';
+import { useSigningContext } from '../../signing/context';
+import { SigningFieldNodeView } from './PageOverlay';
 
 type ResizeDirection =
   | 'n'
@@ -90,7 +93,12 @@ function clampIntegerOffset(value: number, minimum: number, maximum: number): nu
   return Math.min(maximumInteger, Math.max(minimumInteger, Math.round(value)));
 }
 
-function FloatingFieldNodeView({ node, selected, updateAttributes, editor, getPos }: NodeViewProps) {
+function FloatingFieldNodeView(props: NodeViewProps) {
+  const signing = useSigningContext();
+  return signing ? <SigningFieldNodeView node={props.node} /> : <DesignFloatingFieldNodeView {...props} />;
+}
+
+function DesignFloatingFieldNodeView({ node, selected, updateAttributes, editor, getPos }: NodeViewProps) {
   const elementRef = useRef<HTMLSpanElement | null>(null);
   const [box, setBox] = useState<Box>({
     x: node.attrs.offsetX || 0,
@@ -99,6 +107,82 @@ function FloatingFieldNodeView({ node, selected, updateAttributes, editor, getPo
     height: node.attrs.height,
   });
   const [guides, setGuides] = useState<Guides>({});
+  const [anchorDrop, setAnchorDrop] = useState<{ left: number; top: number; height: number } | null>(null);
+  const [draggingAnchor, setDraggingAnchor] = useState(false);
+  const stopAnchorDrag = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => stopAnchorDrag.current?.(), []);
+
+  const startAnchorDrag = (event: React.PointerEvent<HTMLSpanElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const element = elementRef.current;
+    if (!element) return;
+    const originalRect = element.getBoundingClientRect();
+    let targetPosition: number | null = null;
+    editor.view.dom.classList.add('is-dragging-signing-anchor');
+    setDraggingAnchor(true);
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const page = getPageAtPoint(moveEvent.clientX, moveEvent.clientY);
+      const position = page ? editor.view.posAtCoords({ left: moveEvent.clientX, top: moveEvent.clientY })?.pos : undefined;
+      targetPosition = null;
+      if (typeof position === 'number') {
+        const resolved = editor.state.doc.resolve(position);
+        // Signing anchors are accepted by paragraphs and headings in exported templates.
+        if (resolved.parent.type.name === 'paragraph' || resolved.parent.type.name === 'heading') {
+          targetPosition = position;
+          const coords = editor.view.coordsAtPos(position);
+          setAnchorDrop({ left: coords.left, top: coords.top, height: coords.bottom - coords.top });
+          return;
+        }
+      }
+      setAnchorDrop(null);
+    };
+    const cleanup = () => {
+      editor.view.dom.classList.remove('is-dragging-signing-anchor');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onEscape);
+      stopAnchorDrag.current = null;
+    };
+    const onCancel = () => {
+      cleanup();
+      setDraggingAnchor(false);
+      setAnchorDrop(null);
+    };
+    const onEscape = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === 'Escape') {
+        keyEvent.preventDefault();
+        onCancel();
+      }
+    };
+    const onEnd = () => {
+      onCancel();
+      const oldPosition = getPos();
+      if (targetPosition === null || typeof oldPosition !== 'number'
+        || targetPosition === oldPosition || targetPosition === oldPosition + node.nodeSize) return;
+      const currentNode = editor.state.doc.nodeAt(oldPosition);
+      if (currentNode?.type.name !== 'floatingField') return;
+      const coords = editor.view.coordsAtPos(targetPosition);
+      const transaction = closeHistory(editor.state.tr);
+      transaction.delete(oldPosition, oldPosition + currentNode.nodeSize);
+      const mappedPosition = transaction.mapping.map(targetPosition);
+      transaction.insert(mappedPosition, currentNode.type.create({
+        ...currentNode.attrs,
+        offsetX: Math.round(originalRect.left - coords.left),
+        offsetY: Math.round(originalRect.top - coords.bottom),
+      }, null, currentNode.marks));
+      transaction.setSelection(NodeSelection.create(transaction.doc, mappedPosition));
+      editor.view.dispatch(transaction);
+    };
+    stopAnchorDrag.current = cleanup;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onEscape);
+  };
 
   useEffect(() => {
     setBox({
@@ -158,6 +242,7 @@ function FloatingFieldNodeView({ node, selected, updateAttributes, editor, getPo
   }, [editor, getPos, node.attrs.fieldType, node.attrs.height, node.attrs.offsetX, node.attrs.offsetY, node.attrs.width]);
 
   const selectNode = () => {
+    if (selected) return;
     const position = getPos();
     if (typeof position === 'number') {
       editor.commands.setNodeSelection(position);
@@ -205,9 +290,7 @@ function FloatingFieldNodeView({ node, selected, updateAttributes, editor, getPo
         x: startRect.left + moveEvent.clientX - startPointer.x,
         y: startRect.top + moveEvent.clientY - startPointer.y,
       };
-      const centerX = raw.x + raw.width / 2;
-      const centerY = raw.y + raw.height / 2;
-      latestPage = getPageAtPoint(centerX, centerY) || latestPage;
+      latestPage = initialPage;
       const pageRect = getSafeAreaRect(latestPage);
       const otherRects = Array.from(
         latestPage.querySelectorAll<HTMLElement>('.floating-field__box'),
@@ -243,74 +326,10 @@ function FloatingFieldNodeView({ node, selected, updateAttributes, editor, getPo
         return;
       }
 
-      if (latestPage === initialPage) {
-        updateAttributes({
-          offsetX: Math.round(latestLocal.x),
-          offsetY: Math.round(latestLocal.y),
-        });
-        return;
-      }
-
-      const oldPosition = getPos();
-      if (typeof oldPosition !== 'number') {
-        return;
-      }
-
-      const center = {
-        left: latestAbsolute.x + latestAbsolute.width / 2,
-        top: latestAbsolute.y + latestAbsolute.height / 2,
-      };
-      const targetPageId = latestPage.dataset.pageId;
-      const coordinatePosition = editor.view.posAtCoords(center)?.pos;
-      let targetPosition: number | null = null;
-
-      if (typeof coordinatePosition === 'number') {
-        const resolved = editor.state.doc.resolve(coordinatePosition);
-        let resolvedPageId: string | null = null;
-        for (let depth = resolved.depth; depth >= 0; depth -= 1) {
-          if (resolved.node(depth).type.name === 'page') {
-            resolvedPageId = resolved.node(depth).attrs.pageId;
-            break;
-          }
-        }
-        if (resolved.parent.inlineContent && resolvedPageId === targetPageId) {
-          targetPosition = coordinatePosition;
-        }
-      }
-
-      if (targetPosition === null && targetPageId) {
-        editor.state.doc.descendants((candidate, candidatePosition) => {
-          if (targetPosition !== null || candidate.type.name !== 'page' || candidate.attrs.pageId !== targetPageId) {
-            return targetPosition === null;
-          }
-          candidate.descendants((child, relativePosition) => {
-            if (targetPosition === null && child.inlineContent) {
-              targetPosition = candidatePosition + relativePosition + 2;
-              return false;
-            }
-            return targetPosition === null;
-          });
-          return false;
-        });
-      }
-
-      if (targetPosition !== null) {
-        const anchorRect = editor.view.coordsAtPos(targetPosition);
-        const attrs = {
-          ...node.attrs,
-          offsetX: Math.round(latestAbsolute.x - anchorRect.left),
-          offsetY: Math.round(latestAbsolute.y - anchorRect.top),
-        };
-        const transaction = editor.state.tr;
-        transaction.delete(oldPosition, oldPosition + node.nodeSize);
-        const mappedPosition = transaction.mapping.map(targetPosition);
-        transaction.insert(mappedPosition, node.type.create(attrs));
-        transaction.setSelection(NodeSelection.create(transaction.doc, mappedPosition));
-        editor.view.dispatch(transaction.scrollIntoView());
-        return;
-      }
-
-      updateAttributes({ offsetX: Math.round(latestLocal.x), offsetY: Math.round(latestLocal.y) });
+      updateAttributes({
+        offsetX: Math.round(latestLocal.x),
+        offsetY: Math.round(latestLocal.y),
+      });
     };
 
     window.addEventListener('pointermove', onMove);
@@ -422,11 +441,26 @@ function FloatingFieldNodeView({ node, selected, updateAttributes, editor, getPo
   return (
     <NodeViewWrapper
       as="span"
-      className="floating-field__anchor"
+      className={`floating-field__anchor${selected ? ' is-selected' : ''}${draggingAnchor ? ' is-dragging-anchor' : ''}`}
       data-ref-id={node.attrs.refId}
       data-field-id={node.attrs.fieldId}
       contentEditable={false}
     >
+      {selected ? (
+        <>
+          <svg className="floating-field__anchor-line" aria-hidden="true">
+            <line x1="0" y1="0" x2={box.x + box.width / 2} y2={box.y + box.height / 2} />
+          </svg>
+          <span
+            className="floating-field__anchor-handle"
+            role="button"
+            aria-label={`移动 ${node.attrs.fieldName} 的正文锚点`}
+            title="拖动锚点以重新绑定正文；控件尽量保持原位"
+            onPointerDown={startAnchorDrag}
+          >⚓</span>
+        </>
+      ) : null}
+      {anchorDrop ? <span className="floating-field__anchor-drop" style={{ left: anchorDrop.left, top: anchorDrop.top, height: anchorDrop.height }} /> : null}
       <span
         ref={elementRef}
         className={`floating-field__box${selected ? ' is-selected' : ''}`}
@@ -479,37 +513,34 @@ export const FloatingField = Node.create({
 
   addAttributes() {
     return {
-      refId: { default: null },
-      fieldId: { default: null },
-      fieldType: { default: 'signature' },
-      fieldName: { default: '签署区' },
-      width: { default: 160 },
-      height: { default: 80 },
-      offsetX: { default: 12 },
-      offsetY: { default: 12 },
+      refId: { default: null, parseHTML: element => element.getAttribute('data-ref-id') },
+      fieldId: { default: null, parseHTML: element => element.getAttribute('data-field-id') },
+      fieldType: { default: 'signature', parseHTML: element => element.getAttribute('data-field-type') },
+      fieldName: { default: '签署区', parseHTML: element => element.getAttribute('data-field-name') },
+      width: { default: 160, parseHTML: element => Number(element.getAttribute('data-width')) || 160 },
+      height: { default: 80, parseHTML: element => Number(element.getAttribute('data-height')) || 80 },
+      offsetX: { default: 12, parseHTML: element => Number(element.getAttribute('data-x') ?? element.getAttribute('data-offset-x')) || 0 },
+      offsetY: { default: 12, parseHTML: element => Number(element.getAttribute('data-y') ?? element.getAttribute('data-offset-y')) || 0 },
     };
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-floating-field]' }];
+    return [{ tag: 'span[data-contract-overlay][data-position-mode="inline"]' }, { tag: 'span[data-floating-field]' }];
   },
 
-  renderHTML({ node, HTMLAttributes }) {
-    return [
-      'span',
-      mergeAttributes(HTMLAttributes, {
-        'data-floating-field': 'true',
-        'data-ref-id': node.attrs.refId,
-        'data-field-id': node.attrs.fieldId,
-        'data-field-type': node.attrs.fieldType,
-        'data-field-name': node.attrs.fieldName,
-        'data-width': node.attrs.width,
-        'data-height': node.attrs.height,
-        'data-offset-x': node.attrs.offsetX,
-        'data-offset-y': node.attrs.offsetY,
-      }),
-      node.attrs.fieldName,
-    ];
+  renderHTML({ node }) {
+    return ['span', {
+      'data-contract-overlay': 'true',
+      'data-position-mode': 'inline',
+      'data-ref-id': node.attrs.refId,
+      'data-field-id': node.attrs.fieldId,
+      'data-field-type': node.attrs.fieldType,
+      'data-field-name': node.attrs.fieldName,
+      'data-width': node.attrs.width,
+      'data-height': node.attrs.height,
+      'data-x': node.attrs.offsetX,
+      'data-y': node.attrs.offsetY,
+    }, node.attrs.fieldName];
   },
 
   addNodeView() {

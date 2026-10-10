@@ -16,7 +16,10 @@
     "test:pdf": "bash java-backend/smoke-test.sh",
     "test:demo-flow": "tsx scripts/test-demo-flow.ts",
     "test:business-api": "tsx scripts/test-business-api.ts",
-    "test:ui": "tsx scripts/test-ui.ts"
+    "test:ui": "tsx scripts/test-ui.ts",
+    "test:word-import": "tsx scripts/test-word-import.ts",
+    "test:page-furniture": "tsx scripts/test-page-furniture.ts",
+    "test:furniture-ui": "tsx scripts/test-furniture-ui.ts"
   },
   "dependencies": {
     "@tiptap/core": "3.31.3",
@@ -26,6 +29,8 @@
     "@tiptap/react": "3.31.3",
     "@tiptap/starter-kit": "3.31.3",
     "dompurify": "3.2.6",
+    "jszip": "3.10.1",
+    "mammoth": "1.13.0",
     "react": "17.0.1",
     "react-dom": "17.0.1"
   },

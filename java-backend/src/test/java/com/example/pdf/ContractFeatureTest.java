@@ -88,4 +88,25 @@ final class ContractFeatureTest {
             assertTrue(store.contracts().isEmpty());
         }
     }
+    @Test void convertsLegacyAnchorsIntoFlowAreasWithoutLosingControls() throws Exception {
+        var source = HtmlTemplate.parse(Json.resource("/templates/template-demo-html-anchor-dynamic-long-table-001.json").path("template"));
+        var document = Jsoup.parse(Json.text(source, "html"));
+        assertEquals(0, document.select("[data-contract-anchor], [data-anchor-id]").size());
+        var area = document.selectFirst("[data-signing-area]"); assertNotNull(area);
+        assertEquals(3, area.select("[data-contract-overlay]").size());
+        assertEquals("section", area.parent().tagName());
+        var signature = area.selectFirst("[data-field-id=dynamic-signature-party-a]"); assertNotNull(signature);
+        assertEquals(20, Double.parseDouble(signature.attr("data-x")));
+        assertEquals(30, Double.parseDouble(signature.attr("data-y")));
+        var rendered = Jsoup.parse(HtmlTemplate.render(source, Json.object()));
+        assertEquals(3, rendered.select(".pdf-signing-area .pdf-page-overlay").size());
+    }
+    @Test void rejectsSigningAreasThatCannotFitOnOnePage() throws Exception {
+        var source = HtmlTemplate.parse(template());
+        var document = Jsoup.parse(Json.text(source, "html"));
+        document.selectFirst("[data-signing-area]").attr("data-min-height", "900");
+        ((ObjectNode) source.path("pageSettings").path("marginsMm")).put("top", 40).put("bottom", 40);
+        ((ObjectNode) source).put("html", document.body().html());
+        assertThrows(IllegalArgumentException.class, () -> HtmlTemplate.parse(source));
+    }
 }

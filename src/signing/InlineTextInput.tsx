@@ -8,8 +8,6 @@ interface InlineTextInputProps {
   onChange: (value: string) => void;
 }
 
-const MAX_LENGTH = 200;
-
 // A native input is one indivisible box. Editable inline text can instead
 // continue on the next paragraph line together with the surrounding text.
 export function InlineTextInput({ value, label, invalid, width, onChange }: InlineTextInputProps) {
@@ -26,7 +24,7 @@ export function InlineTextInput({ value, label, invalid, width, onChange }: Inli
   const commit = () => {
     const element = elementRef.current;
     if (!element || composingRef.current) return;
-    const text = (element.textContent || '').replace(/[\r\n]+/g, ' ').slice(0, MAX_LENGTH);
+    const text = (element.textContent || '').replace(/[\r\n]+/g, ' ');
     if (element.textContent !== text || !text && element.childNodes.length > 0) {
       element.textContent = text;
       const range = document.createRange();
@@ -46,8 +44,7 @@ export function InlineTextInput({ value, label, invalid, width, onChange }: Inli
     if (!element || !selection?.rangeCount) return;
     const range = selection.getRangeAt(0);
     if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return;
-    const remaining = Math.max(0, MAX_LENGTH - ((element.textContent || '').length - range.toString().length));
-    const text = event.clipboardData.getData('text/plain').replace(/[\r\n]+/g, ' ').slice(0, remaining);
+    const text = event.clipboardData.getData('text/plain').replace(/[\r\n]+/g, ' ');
     range.deleteContents();
     const node = document.createTextNode(text);
     range.insertNode(node);

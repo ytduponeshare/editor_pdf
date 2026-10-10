@@ -19,6 +19,7 @@ final class HtmlTemplate {
         Json.require(value != null && value.isObject() && Json.text(value, "format").equals("html")
             && value.path("formatVersion").asInt() == 1 && value.path("html").isTextual(), "仅支持 HTML 模板包 v1");
         var template = (ObjectNode) value.deepCopy();
+        template.set("pageFurniture", PageFurniture.validate(value.path("pageFurniture")));
         JsonNode settings = template.path("pageSettings"), margins = settings.path("marginsMm");
         Json.require(Json.text(settings, "size").equals("A4") && Json.text(settings, "orientation").equals("portrait")
             && Json.text(settings, "printStyleVersion").equals("contract-a4-v2"), "模板页面设置无效");
@@ -39,12 +40,17 @@ final class HtmlTemplate {
         String html = Json.text(template, "html");
         Json.require(html.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= HtmlSanitizer.MAX_HTML_BYTES, "HTML 模板不能超过 5MB");
         Document original = Jsoup.parse(html);
-        Json.require(original.select("script,iframe,object,embed,link,style,img,meta").isEmpty(), "HTML 模板包含不支持的内容");
+        Json.require(original.select("script,iframe,object,embed,link,style,meta").isEmpty(), "HTML 模板包含不支持的内容");
         Document doc = Jsoup.parse(HtmlSanitizer.sanitize(html));
         var pageIds = new HashSet<String>();
         Json.require(!doc.select("section[data-contract-page]").isEmpty(), "HTML 模板至少需要一页");
-        for (Element page : doc.select("section[data-contract-page]"))
+        for (Element page : doc.select("section[data-contract-page]")) {
+            String sectionId = page.hasAttr("data-section-id") ? page.attr("data-section-id") : "default";
+            boolean knownSection = false;
+            for (JsonNode section : template.path("pageFurniture").path("sections")) if (Json.text(section, "id").equals(sectionId)) knownSection = true;
+            Json.require(knownSection, "页面引用的节不存在");
             Json.require(!page.attr("data-page-id").isBlank() && pageIds.add(page.attr("data-page-id")), "页面 ID 缺失或重复");
+        }
         var refs = new HashSet<String>(); var tableFieldIds = new HashSet<String>();
         for (Element ref : doc.select("[data-contract-field],[data-contract-overlay]")) {
             JsonNode field = fields.get(ref.attr("data-field-id"));
@@ -55,9 +61,13 @@ final class HtmlTemplate {
             if (overlay) {
                 Json.require(Set.of("signature", "companySeal").contains(Json.text(field, "type")), "只有签名和企业章可以作为浮层");
                 double height = number(ref.attr("data-height"), Json.text(field, "type").equals("signature") ? 40 : 60, 1123, "字段高度无效");
-                double x = number(ref.attr("data-x"), 0, 794, "浮层位置无效"), y = number(ref.attr("data-y"), 0, 1123, "浮层位置无效");
-                Json.require(x + width <= (210 - margins.path("left").asDouble() - margins.path("right").asDouble()) * 96 / 25.4 + 1
-                    && y + height <= (296 - margins.path("top").asDouble() - margins.path("bottom").asDouble()) * 96 / 25.4 + 1, "浮层超出页面安全区域");
+                String mode = ref.attr("data-position-mode");
+                Json.require(Set.of("", "page", "anchor", "inline").contains(mode), "浮层定位方式无效");
+                boolean inline = mode.equals("inline");
+                Json.require(!inline || (ref.normalName().equals("span") && ref.closest("p,h1,h2,h3") != null), "行内签署锚点必须位于正文段落中");
+                double x = number(ref.attr("data-x"), inline ? -794 : 0, 794, "浮层位置无效"), y = number(ref.attr("data-y"), inline ? -1123 : 0, 1123, "浮层位置无效");
+                Json.require((inline ? width : x + width) <= (210 - margins.path("left").asDouble() - margins.path("right").asDouble()) * 96 / 25.4 + 1
+                    && (inline ? height : y + height) <= (296 - margins.path("top").asDouble() - margins.path("bottom").asDouble()) * 96 / 25.4 + 1, "浮层超出页面安全区域");
                 if (ref.attr("data-position-mode").equals("anchor")) {
                     Element anchor = find(doc, "[data-contract-anchor]", "data-anchor-id", ref.attr("data-anchor-id"));
                     Json.require(anchor != null && number(ref.attr("data-anchor-offset-y"), 0, 900, "锚点位置无效") + height <= Double.parseDouble(anchor.attr("data-reserved-height")), "浮层超出锚点预留区域");
@@ -80,9 +90,54 @@ final class HtmlTemplate {
             var columns = new HashSet<String>(); config.path("columns").forEach(c -> columns.add(Json.text(c, "id")));
             for (Element ref : matches.get(0).select("[data-bound-column]")) Json.require(columns.contains(ref.attr("data-bound-column")), "字段表格包含未知绑定列");
         }
+        normalizeSigningAreas(doc, margins);
+        var areaIds = new HashSet<String>();
+        for (Element area : doc.select("[data-signing-area]")) {
+            Json.require(area.parent().hasAttr("data-contract-page") && !area.attr("data-area-id").isBlank() && areaIds.add(area.attr("data-area-id")), "签署区域位置或 ID 无效");
+            Json.require(area.children().stream().allMatch(child -> child.hasAttr("data-contract-overlay")), "签署区域只能包含签名和印章");
+            double height = signingAreaHeight(area);
+            Json.require(height <= (296 - margins.path("top").asDouble() - margins.path("bottom").asDouble()) * 96 / 25.4 - 16, "签署区域高度超出单页，请减小控件尺寸或分开布局");
+        }
         doc.outputSettings().prettyPrint(false);
         template.put("html", doc.body().html());
         return template;
+    }
+    private static double signingAreaHeight(Element area) {
+        double height = number(area.hasAttr("data-min-height") ? area.attr("data-min-height") : "40", 40, 900, "签署区域高度无效");
+        for (Element field : area.children()) height = Math.max(height, Double.parseDouble(field.attr("data-y")) + Double.parseDouble(field.attr("data-height")) + 12);
+        return height;
+    }
+    private static void normalizeSigningAreas(Document doc, JsonNode margins) {
+        double safeWidth = (210 - margins.path("left").asDouble() - margins.path("right").asDouble()) * 96 / 25.4;
+        for (Element anchor : doc.select("[data-contract-anchor]")) {
+            var area = new Element("div").attr("data-signing-area", "true").attr("data-area-id", anchor.attr("data-anchor-id"))
+                .attr("data-min-height", anchor.attr("data-reserved-height"));
+            String anchorId = anchor.attr("data-anchor-id");
+            for (Element field : doc.select("[data-contract-overlay][data-position-mode=anchor]")) {
+                if (!field.attr("data-anchor-id").equals(anchorId)) continue;
+                double width = Double.parseDouble(field.attr("data-width"));
+                String align = field.attr("data-anchor-align");
+                double baseX = align.equals("center") ? (safeWidth - width) / 2 : align.equals("right") ? safeWidth - width : 0;
+                field.attr("data-x", String.valueOf(Math.round(baseX + Double.parseDouble(field.attr("data-anchor-offset-x")))))
+                    .attr("data-y", field.attr("data-anchor-offset-y"));
+                clearAnchor(field); area.appendChild(field);
+            }
+            anchor.replaceWith(area);
+        }
+        for (Element page : doc.select("section[data-contract-page]")) {
+            var fields = page.children().stream().filter(child -> child.hasAttr("data-contract-overlay")).toList();
+            if (fields.isEmpty()) continue;
+            var area = new Element("div").attr("data-signing-area", "true").attr("data-area-id", "area-" + java.util.UUID.randomUUID()).attr("data-min-height", "40");
+            double firstY = fields.stream().mapToDouble(field -> Double.parseDouble(field.attr("data-y"))).min().orElse(0);
+            for (Element field : fields) {
+                double y = 12 + Double.parseDouble(field.attr("data-y")) - firstY;
+                clearAnchor(field); field.attr("data-y", String.valueOf(y)); area.appendChild(field);
+            }
+            page.appendChild(area);
+        }
+    }
+    private static void clearAnchor(Element field) {
+        field.removeAttr("data-position-mode").removeAttr("data-anchor-id").removeAttr("data-anchor-align").removeAttr("data-anchor-offset-x").removeAttr("data-anchor-offset-y");
     }
     private static void validateBinding(JsonNode b, String type) {
         Json.require(b.isObject() && b.path("version").asInt() == 1, "字段绑定无效");
@@ -133,6 +188,7 @@ final class HtmlTemplate {
     private static void style(Element element, String value) { element.attr("style", element.attr("style") + ";" + value); }
     static String render(JsonNode template, JsonNode signed) throws IOException {
         Document doc = Jsoup.parse(Json.text(template, "html"));
+        normalizeSigningAreas(doc, template.path("pageSettings").path("marginsMm"));
         var fields = new HashMap<String, JsonNode>(); template.path("fields").forEach(f -> fields.put(Json.text(f, "id"), f));
         var values = new HashMap<String, String>(); signed.path("fields").forEach(f -> values.put(Json.text(f, "fieldId"), Json.text(f, "value")));
         var images = new HashMap<String, String>();
@@ -157,6 +213,9 @@ final class HtmlTemplate {
                 body.appendChild(row);
             }
         }
+        for (Element area : doc.select("[data-signing-area]")) {
+            area.attr("class", "pdf-signing-area"); style(area, "height:" + signingAreaHeight(area) + "px");
+        }
         for (Element page : doc.select("section[data-contract-page]")) page.attr("class", "pdf-page");
         for (Element anchor : doc.select("[data-contract-anchor]")) { anchor.attr("class", "pdf-layout-anchor"); style(anchor, "height:" + anchor.attr("data-reserved-height") + "px"); }
         for (Element ref : doc.select("[data-contract-field]")) {
@@ -169,16 +228,22 @@ final class HtmlTemplate {
             style(ref, ref.hasAttr("data-bound-column") ? "width:100%;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere" : !value.isEmpty() && ref.attr("data-field-type").equals("text") && !ref.hasAttr("data-bound-column")
                 ? "display:inline;width:auto;white-space:pre-wrap;overflow-wrap:anywhere" : "width:" + ref.attr("data-width") + "px");
             ref.text(value.isEmpty() ? "\u00a0" : value);
+            if (ref.hasAttr("data-bound-column") && !value.isEmpty()) {
+                ref.empty().appendElement("span").attr("class", "pdf-inline-field__value").text(value);
+            }
         }
         for (Element overlay : doc.select("[data-contract-overlay]")) {
             String id = overlay.attr("data-field-id"); JsonNode field = fields.get(id);
-            overlay.attr("class", "pdf-page-overlay").empty();
+            boolean inline = overlay.attr("data-position-mode").equals("inline");
+            overlay.attr("class", inline ? "pdf-floating-anchor" : "pdf-page-overlay").empty();
             style(overlay, "--field-width:" + overlay.attr("data-width") + "px;--field-height:" + overlay.attr("data-height") + "px;--field-x:" + overlay.attr("data-x") + "px;--field-y:" + overlay.attr("data-y") + "px");
-            if (images.containsKey(id)) overlay.appendElement("img").attr("class", Json.text(field, "type").equals("companySeal") ? "pdf-seal-image" : "pdf-signature-image").attr("src", images.get(id)).attr("alt", Json.text(field, "name"));
-            else overlay.appendElement("span").attr("class", "pdf-field-placeholder").text(Json.text(field, "name"));
+            Element box = inline ? overlay.appendElement("span").attr("class", "pdf-floating-box") : overlay;
+            if (images.containsKey(id)) box.appendElement("img").attr("class", Json.text(field, "type").equals("companySeal") ? "pdf-seal-image" : "pdf-signature-image").attr("src", images.get(id)).attr("alt", Json.text(field, "name"));
+            else box.appendElement("span").attr("class", "pdf-field-placeholder").text(Json.text(field, "name"));
         }
         String css = Json.resourceText("/print.css"); JsonNode margins = template.path("pageSettings").path("marginsMm");
         for (String side : Set.of("top", "right", "bottom", "left")) css = css.replace("{{" + side + "}}", margins.path(side).asText());
+        PageFurniture.decorate(doc, PageFurniture.validate(template.path("pageFurniture")), margins);
         doc.head().empty().appendElement("meta").attr("charset", "UTF-8"); doc.head().appendElement("style").text(css);
         doc.outputSettings().prettyPrint(false);
         return HtmlSanitizer.sanitize(doc.outerHtml());

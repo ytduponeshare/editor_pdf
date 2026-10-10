@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
+import { PageFurniturePanel } from './PageFurniturePanel';
 import type { Editor } from '@tiptap/core';
 import { RoleBindingPanel, RoleManager } from './RoleBindingPanel';
 import {
-  createAndBindLayoutAnchor,
   deleteSelectedReference,
   duplicateSelectedReference,
   getFields,
-  getLayoutAnchors,
   getPageMargins,
   getSelectedFieldReference,
   insertExistingField,
@@ -102,7 +101,9 @@ function getFloatingAvailableSize(refId: string): { width: number; height: numbe
   const safeRect = safeArea.getBoundingClientRect();
   return {
     width: Math.floor(safeRect.right - boxRect.left),
-    height: Math.floor(safeRect.bottom - boxRect.top),
+    height: Math.floor(box.closest('[data-signing-area]')
+      ? safeRect.height - 28 - (boxRect.top - (box.closest<HTMLElement>('.signing-area__content')?.getBoundingClientRect().top || boxRect.top))
+      : safeRect.bottom - boxRect.top),
   };
 }
 
@@ -147,7 +148,7 @@ function PageSettingsPanel({ editor }: { editor: Editor }) {
   );
 }
 
-function PropertyPanel({ editor, revision, insertionPosition }: Pick<EditorSidebarProps, 'editor' | 'revision' | 'insertionPosition'>) {
+function PropertyPanel({ editor, revision }: Pick<EditorSidebarProps, 'editor' | 'revision' | 'insertionPosition'>) {
   const selected = getSelectedFieldReference(editor);
   const [name, setName] = useState(selected?.field.name || '');
 
@@ -161,9 +162,6 @@ function PropertyPanel({ editor, revision, insertionPosition }: Pick<EditorSideb
 
   const isFloating = selected.node.type.name === 'floatingField'
     || selected.node.type.name === 'pageOverlay';
-  const supportsAnchor = selected.node.type.name === 'pageOverlay';
-  const positionMode = selected.node.attrs.positionMode === 'anchor' ? 'anchor' : 'page';
-  const anchors = supportsAnchor ? getLayoutAnchors(editor) : [];
   const minimumWidth = isFloating
     ? selected.field.type === 'signature' ? 80 : 60
     : 60;
@@ -187,7 +185,7 @@ function PropertyPanel({ editor, revision, insertionPosition }: Pick<EditorSideb
       <RoleBindingPanel editor={editor} field={selected.field} />
       <div className="property-panel__type">
         <span className="control-item__icon">{CONTROL_ICONS[selected.field.type]}</span>
-        <div><strong>{FIELD_LABELS[selected.field.type]}</strong><small>{isFloating ? '浮动占位控件' : '文流占位控件'}</small></div>
+        <div><strong>{FIELD_LABELS[selected.field.type]}</strong><small>{isFloating ? '正文锚定浮动控件' : '文流占位控件'}</small></div>
       </div>
       <label className="property-field">
         <span>控件名称</span>
@@ -203,57 +201,7 @@ function PropertyPanel({ editor, revision, insertionPosition }: Pick<EditorSideb
           <input type="number" min={minimumHeight} max={maximumHeight} value={selected.node.attrs.height} onChange={(event) => updateSelectedReference(editor, { height: Math.min(maximumHeight, Math.max(minimumHeight, Number(event.target.value) || 0)) })} />
         </label>
       ) : null}
-      {supportsAnchor ? (
-        <section className="anchor-property-section">
-          <label className="property-field">
-            <span>定位方式</span>
-            <select
-              value={positionMode}
-              onChange={(event) => updateSelectedReference(editor, event.target.value === 'anchor'
-                ? {
-                    positionMode: 'anchor',
-                    anchorId: selected.node.attrs.anchorId || anchors[0]?.id || null,
-                    anchorAlign: selected.node.attrs.anchorAlign || 'left',
-                    anchorOffsetX: Number(selected.node.attrs.anchorOffsetX) || 0,
-                    anchorOffsetY: Number(selected.node.attrs.anchorOffsetY) || 0,
-                  }
-                : { positionMode: 'page', anchorId: null })}
-            >
-              <option value="page">固定在当前页面</option>
-              <option value="anchor" disabled={!anchors.length}>跟随正文锚点</option>
-            </select>
-          </label>
-          {positionMode === 'anchor' ? (
-            <>
-              <label className="property-field">
-                <span>锚点</span>
-                <select value={selected.node.attrs.anchorId || ''} onChange={(event) => updateSelectedReference(editor, { anchorId: event.target.value })}>
-                  <option value="" disabled>请选择锚点</option>
-                  {anchors.map(anchor => <option key={anchor.id} value={anchor.id}>{anchor.name}</option>)}
-                </select>
-              </label>
-              <label className="property-field">
-                <span>水平对齐</span>
-                <select value={selected.node.attrs.anchorAlign || 'left'} onChange={(event) => updateSelectedReference(editor, { anchorAlign: event.target.value })}>
-                  <option value="left">左对齐</option>
-                  <option value="center">居中</option>
-                  <option value="right">右对齐</option>
-                </select>
-              </label>
-              <label className="property-field">
-                <span>横向偏移（px）</span>
-                <input type="number" value={Number(selected.node.attrs.anchorOffsetX) || 0} onChange={(event) => updateSelectedReference(editor, { anchorOffsetX: Number(event.target.value) || 0 })} />
-              </label>
-              <label className="property-field">
-                <span>纵向偏移（px）</span>
-                <input type="number" min={0} value={Number(selected.node.attrs.anchorOffsetY) || 0} onChange={(event) => updateSelectedReference(editor, { anchorOffsetY: Math.max(0, Number(event.target.value) || 0) })} />
-              </label>
-              <p className="sidebar-hint">锚点空间不足时会整体移动到下一页，签署区和企业章不会拆分。</p>
-            </>
-          ) : null}
-          <button type="button" onClick={() => createAndBindLayoutAnchor(editor, insertionPosition)}>在正文光标后新建锚点并绑定</button>
-        </section>
-      ) : null}
+      {isFloating ? <p className="sidebar-hint">拖动控件调整位置；拖动锚点重新绑定正文，控件尽量保持原位，之后跟随新锚点移动。正文不会自动避让，请预留签署空白。</p> : null}
       <div className="property-panel__actions">
         {selected.node.attrs.boundColumn ? <p>此控件绑定字段表格，增删列请使用工具栏“配置表格”。</p> : null}
         <button type="button" onClick={() => resetSelectedReferenceSize(editor)}>恢复默认尺寸</button>
@@ -272,7 +220,7 @@ export function EditorSidebar({
   onInsertionUnavailable,
 }: EditorSidebarProps) {
   const selected = getSelectedFieldReference(editor);
-  const [activeTab, setActiveTab] = useState<'library' | 'properties'>(selected ? 'properties' : 'library');
+  const [activeTab, setActiveTab] = useState<'library' | 'properties' | 'furniture'>(selected ? 'properties' : 'library');
   const fields = getFields(editor);
 
   useEffect(() => {
@@ -289,16 +237,19 @@ export function EditorSidebar({
   };
 
   return (
-    <aside className="editor-sidebar">
+    <aside className="editor-sidebar" aria-label="文档控件与设置">
+      <div className="sidebar-heading"><strong>编辑面板</strong><span>控件与页面设置</span></div>
       <div className="sidebar-tabs">
-        <button type="button" className={activeTab === 'library' ? 'is-active' : ''} onClick={() => setActiveTab('library')}>控件库</button>
-        <button type="button" className={activeTab === 'properties' ? 'is-active' : ''} onClick={() => setActiveTab('properties')}>属性设置</button>
+        <button type="button" aria-pressed={activeTab === 'library'} className={activeTab === 'library' ? 'is-active' : ''} onClick={() => setActiveTab('library')}>控件库</button>
+        <button type="button" aria-pressed={activeTab === 'properties'} className={activeTab === 'properties' ? 'is-active' : ''} onClick={() => setActiveTab('properties')}>属性设置</button>
+        <button type="button" aria-pressed={activeTab === 'furniture'} className={activeTab === 'furniture' ? 'is-active' : ''} onClick={() => setActiveTab('furniture')}>页眉页脚</button>
       </div>
       <RoleManager editor={editor} />
-      {activeTab === 'library' ? (
+      {activeTab === 'furniture' ? <div className="sidebar-content"><PageFurniturePanel editor={editor} /></div> : activeTab === 'library' ? (
         <div className="sidebar-content">
           <section className="sidebar-section">
             <h2>基础字段</h2>
+            <p className="sidebar-hint sidebar-insert-hint">点击插入光标处，或拖入正文</p>
             <div className="control-grid">{(['text', 'number', 'date', 'phone'] as FieldType[]).map((type) => <ControlItem key={type} type={type} onInsert={() => insertAtCaret(type)} />)}</div>
           </section>
           <section className="sidebar-section">

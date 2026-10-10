@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core';
 import type { FieldTableConfig } from './fieldTableTypes';
+import type { PageFurniture } from './pageFurniture';
 
 export const TEMPLATE_SCHEMA_VERSION = 5 as const;
 export const LOCAL_STORAGE_KEY = 'editor_pdf:html-template:v1';
@@ -61,6 +62,7 @@ export interface PageSettings {
 }
 
 export interface ContractTemplateV3 {
+  pageFurniture?: PageFurniture;
   roles?: TemplateRole[];
   schemaVersion: typeof TEMPLATE_SCHEMA_VERSION;
   pageSettings: PageSettings;
@@ -69,6 +71,7 @@ export interface ContractTemplateV3 {
 }
 
 export interface HtmlContractTemplateV1 {
+  pageFurniture?: PageFurniture;
   format: 'html';
   formatVersion: 1;
   html: string;

@@ -144,7 +144,7 @@ final class ContractService {
         return Json.object().put("fieldId", Json.text(field, "id")).put("fieldName", Json.text(field, "name")).put("roleId", Json.text(role, "id")).put("roleName", Json.text(role, "name"));
     }
     private static void validateValue(String value, String type, JsonNode options, String name) {
-        Json.require(!value.isBlank() && value.length() <= 200, "请填写" + name);
+        Json.require(!value.isBlank() && (type.equals("text") || value.length() <= 200), "请填写" + name);
         if (type.equals("date")) {
             try { Json.require(value.matches("\\d{4}-\\d{2}-\\d{2}") && LocalDate.parse(value).toString().equals(value), name + "格式无效"); }
             catch (java.time.DateTimeException error) { throw new IllegalArgumentException(name + "格式无效"); }
@@ -177,8 +177,13 @@ final class ContractService {
         }
         Json.require(incoming.isEmpty(), "字段表格包含未授权单元格");
     }
-    private static byte[] pdf(JsonNode view) throws Exception {
-        try { return ChromiumPdf.render(HtmlTemplate.render(view.path("template"), view)).pdf(); }
+    private static byte[] pdf(ObjectNode view) throws Exception {
+        try {
+            var result = ChromiumPdf.render(HtmlTemplate.render(view.path("template"), view));
+            view.set("signingPositions", result.signingPositions());
+            view.put("pdfPageCount", result.pagination().path("finalPages").asInt());
+            return result.pdf();
+        }
         catch (Exception error) { error.printStackTrace(); throw new ApiError(500, "签后文件生成失败"); }
     }
     static ObjectNode publicView(ObjectNode data) { ObjectNode result = data.deepCopy(); result.remove("demo"); return result; }

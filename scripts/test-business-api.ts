@@ -85,11 +85,14 @@ async function main() {
     assert.equal(preview.status, 200, preview.ok ? '' : await preview.text());
     assert.ok(Number(preview.headers.get('X-Pdf-Pages')) > 3);
     assert.ok(Number(preview.headers.get('X-Pdf-Split-Rows')) > 0);
-    if (filename === 'dynamic-long') assert.equal(Number(preview.headers.get('X-Pdf-Anchored-Overlays')), 3);
+    if (filename === 'dynamic-long') {
+      assert.equal(Number(preview.headers.get('X-Pdf-Anchored-Overlays')), 0);
+      assert.ok('html' in view.template && view.template.html.includes('data-signing-area'));
+    }
     writeFileSync(`${output}/${filename}.pdf`, Buffer.from(await preview.arrayBuffer()));
     writeFileSync(`${output}/${filename}.json`, JSON.stringify(view, null, 2));
   }
   writeFileSync(`${output}/persisted-contract.json`, JSON.stringify(completed, null, 2));
-  console.log('PASS: template CRUD, assignment/role restrictions, image validation, table permissions, atomic concurrent signing, immutable template snapshot, static/dynamic pagination and anchors');
+  console.log('PASS: template CRUD, assignment/role restrictions, image validation, table permissions, atomic concurrent signing, immutable template snapshot, static/dynamic pagination and flow signing areas');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

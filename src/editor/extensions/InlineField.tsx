@@ -40,7 +40,7 @@ function SigningInlineField({ node }: Pick<NodeViewProps, 'node'>) {
       {binding?.inputType === 'select' ? (
         <select {...common}><option value="">请选择</option>{binding.options?.map(option => <option key={option} value={option}>{option}</option>)}</select>
       ) : (
-        <input {...common} type={binding?.inputType === 'date' || field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'} placeholder={binding?.fieldName || field.name} maxLength={binding?.inputType === 'text' || field.type === 'text' ? 200 : undefined} />
+        <input {...common} type={binding?.inputType === 'date' || field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'} placeholder={binding?.fieldName || field.name} />
       )}
     </NodeViewWrapper>
   );

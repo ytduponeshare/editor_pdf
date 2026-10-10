@@ -67,6 +67,7 @@
       continuation.dataset.pageId = `${source.dataset.pageId || "page"}-runtime-${++pageSequence}`;
       continuation.dataset.breakType = "auto";
       continuation.dataset.runtimePage = "true";
+      source.querySelectorAll(":scope > [data-page-furniture]").forEach(region => continuation.appendChild(region.cloneNode(true)));
       source.insertAdjacentElement("afterend", continuation);
       return continuation;
     };
@@ -277,10 +278,21 @@
       });
     });
     const pages = Array.from(document.querySelectorAll(".pdf-page"));
+    const seenSections = new Set();
+    pages.forEach((page, index) => {
+      const first = !seenSections.has(page.dataset.sectionId || 'default');
+      seenSections.add(page.dataset.sectionId || 'default');
+      const variant = first && page.dataset.differentFirst === 'true' ? 'first' : (index + 1) % 2 === 0 && page.dataset.differentEven === 'true' ? 'even' : 'default';
+      page.querySelectorAll(':scope > [data-page-furniture]').forEach(region => { region.style.display = region.dataset.furnitureVariant === variant ? 'block' : 'none'; });
+      page.querySelectorAll('[data-page-counter]').forEach(counter => { counter.textContent = String(counter.dataset.pageCounter === 'page' ? index + 1 : pages.length); });
+    });
     let overflowViolations = 0;
     let widthViolations = 0;
     pages.forEach((pageElement) => {
       const bounds = pageBounds(pageElement);
+      pageElement.querySelectorAll(':scope > [data-page-furniture]').forEach(region => {
+        if (region.style.display !== 'none' && (region.scrollHeight > region.clientHeight + EPSILON || region.scrollWidth > region.clientWidth + EPSILON)) overflowViolations += 1;
+      });
       flowChildren(pageElement).forEach((element) => {
         const rect = element.getBoundingClientRect();
         if (rect.bottom > bounds.bottom + EPSILON)
@@ -315,6 +327,18 @@
         tableBottom: tableRect ? Math.round(tableRect.bottom - bounds.top) : 0,
         contentBottom: Math.round(bounds.bottom - bounds.top)
       };
+    });
+    document.querySelectorAll('.pdf-floating-anchor').forEach(anchor => {
+      const page = anchor.closest('.pdf-page');
+      const box = anchor.querySelector('.pdf-floating-box, .pdf-field-placeholder');
+      if (!page || !box) return;
+      const rect = anchor.getBoundingClientRect();
+      const bounds = pageBounds(page);
+      const size = box.getBoundingClientRect();
+      const x = Number.parseFloat(anchor.dataset.x || getComputedStyle(anchor).getPropertyValue('--field-x')) || 0;
+      const y = Number.parseFloat(anchor.dataset.y || getComputedStyle(anchor).getPropertyValue('--field-y')) || 0;
+      anchor.style.setProperty('--field-x', `${Math.round(Math.max(bounds.left - rect.left, Math.min(x, bounds.right - size.width - rect.left)))}px`);
+      anchor.style.setProperty('--field-y', `${Math.round(Math.max(bounds.top - rect.top, Math.min(y, bounds.bottom + PRINT_BOTTOM_SAFETY_PX - size.height - rect.top)))}px`);
     });
     return {
       initialPages,

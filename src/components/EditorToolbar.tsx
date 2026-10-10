@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
+import { ToolbarSelect } from './ToolbarSelect';
 import { FieldTableControl } from './FieldTableDialog';
 import { selectedFieldTable } from '../editor/fieldTables';
 import {
@@ -26,7 +27,9 @@ interface EditorToolbarProps {
   onStartSigning: () => void;
   onOpenSignedFiles: () => void;
   isExporting: boolean;
+  isImporting: boolean;
   saveLabel: string;
+  documentTitle: string;
   onSaveTemplate?: () => void;
   onBack?: () => void;
   hideLegacySigning?: boolean;
@@ -45,6 +48,8 @@ function ToolbarButton({ label, title, active, disabled, onClick }: ToolbarButto
     <button
       type="button"
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       className={`toolbar-button${active ? ' is-active' : ''}`}
       disabled={disabled}
       onMouseDown={(event) => {
@@ -186,11 +191,32 @@ export function EditorToolbar({
   onStartSigning,
   onOpenSignedFiles,
   isExporting,
+  isImporting,
   saveLabel,
+  documentTitle,
   onSaveTemplate,
   onBack,
   hideLegacySigning,
 }: EditorToolbarProps) {
+  const moreActionsRef = useRef<HTMLDetailsElement | null>(null);
+
+  useEffect(() => {
+    const closeOnOutside = (event: MouseEvent) => {
+      if (event.target instanceof Node && !moreActionsRef.current?.contains(event.target)) {
+        moreActionsRef.current?.removeAttribute('open');
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') moreActionsRef.current?.removeAttribute('open');
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
+
   const [customLineHeight, setCustomLineHeight] = useState('2');
   const headingLevel = editor.isActive('heading', { level: 1 })
     ? '1'
@@ -285,107 +311,134 @@ export function EditorToolbar({
 
   return (
     <header className="editor-toolbar" aria-label="合同编辑工具栏">
-      <div className="editor-toolbar__group">
-        <ToolbarButton label="↶" title="撤销" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()} />
-        <ToolbarButton label="↷" title="重做" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()} />
+      <div className="editor-document-bar">
+        <div className="editor-document-bar__identity">
+          {onBack ? <button type="button" className="secondary-action editor-back" onClick={onBack}>返回模板列表</button> : null}
+          <div className="editor-document-title"><strong title={documentTitle}>{documentTitle}</strong><span>合同模板编辑</span></div>
+          <span className="save-status" role="status">{saveLabel}</span>
+        </div>
+        <div className="editor-document-bar__actions">
+          <button type="button" className="secondary-action" disabled={isImporting} onClick={onImport}>{isImporting ? '导入中…' : '导入模板 / Word'}</button>
+          <button type="button" className="secondary-action" disabled={isExporting} onClick={onExportHtmlPdf}>{isExporting ? '导出中…' : '导出 PDF'}</button>
+          <details ref={moreActionsRef} className="editor-more-actions">
+            <summary className="secondary-action">更多操作</summary>
+            <div className="editor-more-actions__menu" onClick={(event) => {
+              if (event.target instanceof HTMLElement && event.target.closest('button')) {
+                moreActionsRef.current?.removeAttribute('open');
+              }
+            }}>
+              <button type="button" onClick={onDownload}>下载模板包</button>
+              <button type="button" onClick={onExportHtml}>下载 HTML</button>
+              {!hideLegacySigning ? <button type="button" onClick={onOpenSignedFiles}>合同记录</button> : null}
+            </div>
+          </details>
+          {!hideLegacySigning ? <button type="button" className="primary-action" onClick={onStartSigning}>发起签署</button> : null}
+          {onSaveTemplate ? <button type="button" className="primary-action" onClick={onSaveTemplate}>保存到模板库</button> : null}
+        </div>
       </div>
-      <div className="editor-toolbar__group">
-        <select aria-label="段落样式" value={headingLevel} onChange={(event) => setBlockType(event.target.value)}>
-          <option value="paragraph">正文</option>
-          <option value="1">一级标题</option>
-          <option value="2">二级标题</option>
-          <option value="3">三级标题</option>
-        </select>
-        <select
-          aria-label="字号"
-          title="设置字号"
-          value={isAllowedFontSize(activeFontSize) ? String(activeFontSize) : 'default'}
-          onChange={(event) => setFontSize(event.target.value)}
-        >
-          <option value="default">默认字号</option>
-          {FONT_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}px</option>)}
-        </select>
-        <select
-          aria-label="字体"
-          title="设置字体"
-          value={isAllowedFontFamily(activeFontFamily) ? activeFontFamily : 'default'}
-          onChange={(event) => setFontFamily(event.target.value)}
-        >
-          <option value="default">默认字体</option>
-          {FONT_FAMILY_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
-        </select>
-        <label className="toolbar-color-control" title="设置字体颜色">
-          <span>颜色</span>
-          <input
-            type="color"
-            aria-label="字体颜色"
-            value={activeTextColor}
-            onChange={(event) => setTextColor(event.target.value)}
+      <div className="editor-format-bar" role="group" aria-label="文字与段落格式">
+        <div className="editor-toolbar__group">
+          <ToolbarButton label="↶" title="撤销" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()} />
+          <ToolbarButton label="↷" title="重做" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()} />
+        </div>
+        <div className="editor-toolbar__group">
+          <ToolbarSelect
+            label="段落样式"
+            value={headingLevel}
+            onChange={setBlockType}
+            options={[
+              { value: 'paragraph', label: '正文' },
+              { value: '1', label: '一级标题' },
+              { value: '2', label: '二级标题' },
+              { value: '3', label: '三级标题' },
+            ]}
           />
-        </label>
-        <ToolbarButton label="还原颜色" title="恢复默认字体颜色" onClick={() => editor.chain().focus().unsetMark('textColor').run()} />
-        <select aria-label="行距" title="设置行距" value={lineHeightMode} onChange={(event) => setLineHeightMode(event.target.value)}>
-          <option value="default">默认行距</option>
-          <option value="1">1 倍行距</option>
-          <option value="1.5">1.5 倍行距</option>
-          <option value="custom">自定义</option>
-        </select>
-        {lineHeightMode === 'custom' ? (
-          <label className="toolbar-line-height-custom" title={`自定义行距（${MIN_LINE_HEIGHT}～${MAX_LINE_HEIGHT}）`}>
-            <span>倍</span>
+          <ToolbarSelect
+            label="字号"
+            title="设置字号"
+            value={isAllowedFontSize(activeFontSize) ? String(activeFontSize) : 'default'}
+            onChange={setFontSize}
+            options={[
+              { value: 'default', label: '默认字号' },
+              ...FONT_SIZE_OPTIONS.map(size => ({ value: String(size), label: `${size}px` })),
+            ]}
+          />
+          <ToolbarSelect
+            label="字体"
+            title="设置字体"
+            value={isAllowedFontFamily(activeFontFamily) ? activeFontFamily : 'default'}
+            onChange={setFontFamily}
+            options={[{ value: 'default', label: '默认字体' }, ...FONT_FAMILY_OPTIONS]}
+          />
+          <label className="toolbar-color-control" title="设置字体颜色">
+            <span>颜色</span>
             <input
-              type="number"
-              aria-label="自定义行距"
-              min={MIN_LINE_HEIGHT}
-              max={MAX_LINE_HEIGHT}
-              step="0.1"
-              value={activeLineHeight === null ? customLineHeight : String(activeLineHeight)}
-              onChange={(event) => updateCustomLineHeight(event.target.value)}
+              type="color"
+              aria-label="字体颜色"
+              value={activeTextColor}
+              onChange={(event) => setTextColor(event.target.value)}
             />
           </label>
-        ) : null}
-        <ToolbarButton label="B" title="加粗（Cmd/Ctrl+B）" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
-        <ToolbarButton label="I" title="斜体（Cmd/Ctrl+I）" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
-        <ToolbarButton label="U" title="下划线（Cmd/Ctrl+U）" active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} />
-        <ToolbarButton label="S" title="删除线" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} />
+          <ToolbarButton label="还原颜色" title="恢复默认字体颜色" onClick={() => editor.chain().focus().unsetMark('textColor').run()} />
+          <ToolbarSelect
+            label="行距"
+            title="设置行距"
+            value={lineHeightMode}
+            onChange={setLineHeightMode}
+            options={[
+              { value: 'default', label: '默认行距' },
+              { value: '1', label: '1 倍行距' },
+              { value: '1.5', label: '1.5 倍行距' },
+              { value: 'custom', label: '自定义' },
+            ]}
+          />
+          {lineHeightMode === 'custom' ? (
+            <label className="toolbar-line-height-custom" title={`自定义行距（${MIN_LINE_HEIGHT}～${MAX_LINE_HEIGHT}）`}>
+              <span>倍</span>
+              <input
+                type="number"
+                aria-label="自定义行距"
+                min={MIN_LINE_HEIGHT}
+                max={MAX_LINE_HEIGHT}
+                step="0.1"
+                value={activeLineHeight === null ? customLineHeight : String(activeLineHeight)}
+                onChange={(event) => updateCustomLineHeight(event.target.value)}
+              />
+            </label>
+          ) : null}
+          <ToolbarButton label="B" title="加粗（Cmd/Ctrl+B）" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
+          <ToolbarButton label="I" title="斜体（Cmd/Ctrl+I）" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
+          <ToolbarButton label="U" title="下划线（Cmd/Ctrl+U）" active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} />
+          <ToolbarButton label="S" title="删除线" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} />
+        </div>
+        <div className="editor-toolbar__group">
+          <ToolbarButton label="左" title="左对齐" active={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()} />
+          <ToolbarButton label="中" title="居中" active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} />
+          <ToolbarButton label="右" title="右对齐" active={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()} />
+          <ToolbarButton label="两端" title="两端对齐" active={editor.isActive({ textAlign: 'justify' })} onClick={() => editor.chain().focus().setTextAlign('justify').run()} />
+          <ToolbarButton label="• 列表" title="无序列表" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
+          <ToolbarButton label="1. 列表" title="有序列表" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
+          <ToolbarButton label="清除格式" title="清除选中文本格式" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()} />
+        </div>
       </div>
-      <div className="editor-toolbar__group">
-        <ToolbarButton label="左" title="左对齐" active={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()} />
-        <ToolbarButton label="中" title="居中" active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} />
-        <ToolbarButton label="右" title="右对齐" active={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()} />
-        <ToolbarButton label="两端" title="两端对齐" active={editor.isActive({ textAlign: 'justify' })} onClick={() => editor.chain().focus().setTextAlign('justify').run()} />
-        <ToolbarButton label="• 列表" title="无序列表" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
-        <ToolbarButton label="1. 列表" title="有序列表" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
-        <ToolbarButton label="清除格式" title="清除选中文本格式" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()} />
+      <div className="editor-insert-bar" role="group" aria-label="表格工具">
+        <span className="editor-tool-label">插入</span>
+        <div className="editor-toolbar__group editor-toolbar__group--table">
+          <TableInsertPicker editor={editor} />
+          <FieldTableControl editor={editor} />
+          {tableActive ? <span className="table-tools-label">表格操作</span> : null}
+          <ToolbarButton label="上插行" title="在当前行上方增加一行" disabled={!tableActive} onClick={() => runTableCommand('addRowBefore')} />
+          <ToolbarButton label="下插行" title="在当前行下方增加一行" disabled={!tableActive} onClick={() => runTableCommand('addRowAfter')} />
+          <ToolbarButton label="删行" title="删除当前行" disabled={!tableActive} onClick={() => runTableCommand('deleteRow')} />
+          <ToolbarButton label="左插列" title="在当前列左侧增加一列" disabled={!tableActive} onClick={() => runTableCommand('addColumnBefore')} />
+          <ToolbarButton label="右插列" title="在当前列右侧增加一列" disabled={!tableActive} onClick={() => runTableCommand('addColumnAfter')} />
+          <ToolbarButton label="删列" title="删除当前列" disabled={!tableActive} onClick={() => runTableCommand('deleteColumn')} />
+          <ToolbarButton label="合并" title="拖动选择相邻单元格后合并" disabled={fieldTableActive || !editor.can().mergeCells()} onClick={() => editor.chain().focus().mergeCells().run()} />
+          <ToolbarButton label="拆分" title="拆分当前已合并的单元格" disabled={fieldTableActive || !editor.can().splitCell()} onClick={() => editor.chain().focus().splitCell().run()} />
+          <ToolbarButton label="表头" title="切换第一行为表头" disabled={!tableActive} onClick={() => runTableCommand('toggleHeaderRow')} />
+          <ToolbarButton label="删表" title="删除整张逻辑表格（包括所有续页片段）" disabled={!editor.isActive('table')} onClick={() => deleteLogicalTable(editor)} />
+        </div>
       </div>
-      <div className="editor-toolbar__group editor-toolbar__group--table">
-        <TableInsertPicker editor={editor} />
-        <FieldTableControl editor={editor} />
-        {tableActive ? <span className="table-tools-label">表格操作</span> : null}
-        <ToolbarButton label="上插行" title="在当前行上方增加一行" disabled={!tableActive} onClick={() => runTableCommand('addRowBefore')} />
-        <ToolbarButton label="下插行" title="在当前行下方增加一行" disabled={!tableActive} onClick={() => runTableCommand('addRowAfter')} />
-        <ToolbarButton label="删行" title="删除当前行" disabled={!tableActive} onClick={() => runTableCommand('deleteRow')} />
-        <ToolbarButton label="左插列" title="在当前列左侧增加一列" disabled={!tableActive} onClick={() => runTableCommand('addColumnBefore')} />
-        <ToolbarButton label="右插列" title="在当前列右侧增加一列" disabled={!tableActive} onClick={() => runTableCommand('addColumnAfter')} />
-        <ToolbarButton label="删列" title="删除当前列" disabled={!tableActive} onClick={() => runTableCommand('deleteColumn')} />
-        <ToolbarButton label="合并" title="拖动选择相邻单元格后合并" disabled={fieldTableActive || !editor.can().mergeCells()} onClick={() => editor.chain().focus().mergeCells().run()} />
-        <ToolbarButton label="拆分" title="拆分当前已合并的单元格" disabled={fieldTableActive || !editor.can().splitCell()} onClick={() => editor.chain().focus().splitCell().run()} />
-        <ToolbarButton label="表头" title="切换第一行为表头" disabled={!tableActive} onClick={() => runTableCommand('toggleHeaderRow')} />
-        <ToolbarButton label="删表" title="删除整张逻辑表格（包括所有续页片段）" disabled={!editor.isActive('table')} onClick={() => deleteLogicalTable(editor)} />
-      </div>
-      <div className="editor-toolbar__spacer" />
-      {onBack ? <button type="button" className="secondary-action" onClick={onBack}>返回模板列表</button> : null}
-      <span className="save-status">{saveLabel}</span>
-      {onSaveTemplate ? <button type="button" className="primary-action" onClick={onSaveTemplate}>保存到模板库</button> : null}
-      <button type="button" className="secondary-action" onClick={onImport}>导入模板</button>
-      <button type="button" className="secondary-action" onClick={onDownload}>下载模板包</button>
-      {!hideLegacySigning ? <button type="button" className="secondary-action" onClick={onStartSigning}>发起签署</button> : null}
-      {!hideLegacySigning ? <button type="button" className="secondary-action" onClick={onOpenSignedFiles}>合同记录</button> : null}
-      <div className="pdf-export-actions" aria-label="PDF 导出方案">
-        <span className="pdf-export-label">HTML → Java/Jsoup → Chromium → PDF</span>
-        <button type="button" className="secondary-action" disabled={isExporting} onClick={onExportHtmlPdf}>HTML 导出 PDF</button>
-      </div>
-      <button type="button" className="secondary-action" onClick={onExportHtml}>下载 HTML</button>
     </header>
   );
 }

@@ -26,13 +26,6 @@ export interface FieldDropPoint {
   clientY: number;
 }
 
-export interface LayoutAnchorSummary {
-  id: string;
-  name: string;
-  reservedHeight: number;
-  position: number;
-}
-
 function getFieldDefinitions(editor: Editor): FieldDefinition[] {
   return (editor.state.doc.attrs.fieldDefinitions || []) as FieldDefinition[];
 }
@@ -78,18 +71,13 @@ function createReferenceAttrs(field: FieldDefinition) {
 
   if (isFloatingFieldType(field.type)) {
     return {
-      nodeName: 'pageOverlay',
+      nodeName: 'floatingField',
       attrs: {
         ...common,
         width: field.type === 'signature' ? 160 : 120,
         height: field.type === 'signature' ? 80 : 120,
-        x: 12,
-        y: 12,
-        positionMode: 'page',
-        anchorId: null,
-        anchorAlign: 'left',
-        anchorOffsetX: 12,
-        anchorOffsetY: 12,
+        offsetX: 12,
+        offsetY: 12,
       },
     };
   }
@@ -100,77 +88,20 @@ function createReferenceAttrs(field: FieldDefinition) {
   };
 }
 
-export function getLayoutAnchors(editor: Editor): LayoutAnchorSummary[] {
-  const anchors: LayoutAnchorSummary[] = [];
-  editor.state.doc.descendants((node, position) => {
-    if (node.type.name !== 'layoutAnchor') return;
-    anchors.push({
-      id: String(node.attrs.anchorId || ''),
-      name: String(node.attrs.anchorName || '签署区域'),
-      reservedHeight: Number(node.attrs.reservedHeight) || 140,
-      position,
-    });
-  });
-  return anchors.filter(anchor => anchor.id);
-}
-
-function resolveAnchorInsertionPosition(editor: Editor, requestedPosition?: number): number | null {
+function resolveSigningAreaPosition(editor: Editor, requestedPosition?: number): number | null {
   const page = findPageAtPosition(editor, requestedPosition);
   if (!page) return null;
-  const safePosition = Math.max(
-    page.position + 1,
-    Math.min(requestedPosition ?? editor.state.selection.from, page.position + page.node.nodeSize - 1),
-  );
-  const resolved = editor.state.doc.resolve(safePosition);
+  const resolved = editor.state.doc.resolve(Math.max(page.position + 1,
+    Math.min(requestedPosition ?? editor.state.selection.from, page.position + page.node.nodeSize - 1)));
   for (let depth = resolved.depth; depth > 0; depth -= 1) {
-    if (resolved.node(depth).type.name !== 'page') continue;
-    if (depth < resolved.depth) return resolved.after(depth + 1);
-    return page.position + page.node.nodeSize - 1 - getPageOverlaySize(page.node);
+    if (resolved.node(depth).type.name === 'page') {
+      if (depth < resolved.depth) return resolved.after(depth + 1);
+      let trailingSize = 0;
+      for (let index = page.node.childCount - 1; index >= 0 && page.node.child(index).type.name === 'pageOverlay'; index -= 1) trailingSize += page.node.child(index).nodeSize;
+      return page.position + page.node.nodeSize - 1 - trailingSize;
+    }
   }
-  return page.position + page.node.nodeSize - 1 - getPageOverlaySize(page.node);
-}
-
-function getPageOverlaySize(page: ProseMirrorNode): number {
-  let size = 0;
-  for (let index = page.childCount - 1; index >= 0; index -= 1) {
-    const child = page.child(index);
-    if (child.type.name !== 'pageOverlay') break;
-    size += child.nodeSize;
-  }
-  return size;
-}
-
-export function createAndBindLayoutAnchor(
-  editor: Editor,
-  requestedPosition?: number | null,
-): boolean {
-  const selected = getSelectedFieldReference(editor);
-  if (!selected || selected.node.type.name !== 'pageOverlay') return false;
-  const insertionPosition = resolveAnchorInsertionPosition(editor, requestedPosition ?? undefined);
-  if (insertionPosition === null) return false;
-  const existingCount = getLayoutAnchors(editor).length;
-  const anchorId = createId('anchor');
-  const anchorName = `签署区域 ${existingCount + 1}`;
-  const anchor = editor.state.schema.nodes.layoutAnchor.create({
-    anchorId,
-    anchorName,
-    reservedHeight: Math.max(140, Number(selected.node.attrs.height) + 32),
-  });
-  let transaction = editor.state.tr.insert(insertionPosition, anchor);
-  const selectedPosition = transaction.mapping.map(selected.position);
-  const selectedNode = transaction.doc.nodeAt(selectedPosition);
-  if (!selectedNode || selectedNode.type.name !== 'pageOverlay') return false;
-  transaction = transaction.setNodeMarkup(selectedPosition, undefined, {
-    ...selectedNode.attrs,
-    positionMode: 'anchor',
-    anchorId,
-    anchorAlign: 'left',
-    anchorOffsetX: Number(selectedNode.attrs.x) || 0,
-    anchorOffsetY: 16,
-  }, selectedNode.marks);
-  transaction.setSelection(NodeSelection.create(transaction.doc, selectedPosition));
-  editor.view.dispatch(transaction.scrollIntoView());
-  return true;
+  return null;
 }
 
 function findPageAtPosition(
@@ -200,62 +131,72 @@ function getPageContentElement(editor: Editor, pagePosition: number): HTMLElemen
   return page?.querySelector<HTMLElement>('.contract-page__content') || null;
 }
 
-function findPageAtDropPoint(
-  editor: Editor,
-  dropPoint: FieldDropPoint,
-): { node: ProseMirrorNode; position: number; content: HTMLElement } | null {
-  const content = Array.from(document.querySelectorAll<HTMLElement>('.contract-page__content'))
-    .find((candidate) => {
-      const rect = candidate.getBoundingClientRect();
-      return dropPoint.clientX >= rect.left
-        && dropPoint.clientX <= rect.right
-        && dropPoint.clientY >= rect.top
-        && dropPoint.clientY <= rect.bottom;
-    });
-  const pageId = content?.closest<HTMLElement>('.contract-page')?.dataset.pageId;
-  if (!content || !pageId) return null;
-  let result: { node: ProseMirrorNode; position: number; content: HTMLElement } | null = null;
-  editor.state.doc.forEach((node, position) => {
-    if (node.type.name === 'page' && node.attrs.pageId === pageId) {
-      result = { node, position, content };
-    }
-  });
-  return result;
-}
-
 function resolveOverlayInsertion(
   editor: Editor,
   attrs: Record<string, unknown>,
   requestedPosition?: number,
   dropPoint?: FieldDropPoint,
-): { position: number; attrs: Record<string, unknown> } | null {
-  const droppedPage = dropPoint ? findPageAtDropPoint(editor, dropPoint) : null;
-  const page = droppedPage || findPageAtPosition(editor, requestedPosition);
-  if (!page) return null;
-  const content = droppedPage?.content || getPageContentElement(editor, page.position);
-  const width = Number(attrs.width);
-  const height = Number(attrs.height);
-  let x = 12;
-  let y = 12;
-
-  if (content) {
-    const rect = content.getBoundingClientRect();
-    const point = dropPoint || (() => {
-      const position = Math.max(
-        page.position + 1,
-        Math.min(requestedPosition ?? editor.state.selection.from, page.position + page.node.nodeSize - 1),
-      );
-      const coordinates = editor.view.coordsAtPos(position);
-      return { clientX: coordinates.left, clientY: coordinates.top };
-    })();
-    x = Math.min(rect.width - width, Math.max(0, point.clientX - rect.left));
-    y = Math.min(rect.height - height, Math.max(0, point.clientY - rect.top));
+): { position: number; attrs: Record<string, unknown>; areaPosition?: number } | null {
+  const areaElement = dropPoint ? Array.from(editor.view.dom.querySelectorAll<HTMLElement>('[data-signing-area]'))
+    .find(element => { const rect = element.getBoundingClientRect(); return dropPoint.clientX >= rect.left && dropPoint.clientX <= rect.right && dropPoint.clientY >= rect.top && dropPoint.clientY <= rect.bottom; }) : null;
+  const selectedAreaPosition = !dropPoint && editor.state.selection.$from.parent.type.name === 'signingArea'
+    ? editor.state.selection.from : requestedPosition;
+  const resolved = editor.state.doc.resolve(Math.max(0, Math.min(selectedAreaPosition ?? editor.state.selection.from, editor.state.doc.content.size)));
+  let areaPosition: number | undefined;
+  let area: ProseMirrorNode | null = null;
+  if (areaElement) editor.state.doc.descendants((node, position) => {
+    if (node.type.name === 'signingArea' && node.attrs.areaId === areaElement.dataset.areaId) { area = node; areaPosition = position; return false; }
+    return true;
+  });
+  else if (!dropPoint) for (let depth = resolved.depth; depth > 0; depth -= 1) {
+    if (resolved.node(depth).type.name === 'signingArea') { area = resolved.node(depth); areaPosition = resolved.before(depth); break; }
   }
+  if (area && areaPosition !== undefined) {
+    const areaNode: ProseMirrorNode = area;
+    let x = 12; let y = 12;
+    if (areaElement && dropPoint) { const rect = areaElement.getBoundingClientRect(); x = Math.max(0, Math.min(rect.width - Number(attrs.width), dropPoint.clientX - rect.left)); y = Math.max(0, dropPoint.clientY - rect.top); }
+    else areaNode.forEach(child => { x = Math.max(x, Number(child.attrs.x) + Number(child.attrs.width) + 12); });
+    const page = findPageAtPosition(editor, areaPosition);
+    const content = page && getPageContentElement(editor, page.position);
+    if (content) {
+      const bounds = content.getBoundingClientRect();
+      if (x + Number(attrs.width) > bounds.width) { x = 12; areaNode.forEach(child => { y = Math.max(y, Number(child.attrs.y) + Number(child.attrs.height) + 12); }); }
+      y = Math.min(y, Math.max(0, bounds.height - Number(attrs.height) - 32));
+    }
+    return { position: areaPosition + areaNode.nodeSize - 1, areaPosition, attrs: { ...attrs, x: Math.round(x), y: Math.round(y) } };
+  }
+  const position = resolveSigningAreaPosition(editor, requestedPosition);
+  if (position === null) return null;
+  const page = dropPoint && findPageAtPosition(editor, position);
+  const content = page && getPageContentElement(editor, page.position);
+  const bounds = content && content.getBoundingClientRect();
+  const x = dropPoint && bounds
+    ? Math.max(0, Math.min(bounds.width - Number(attrs.width), dropPoint.clientX - bounds.left))
+    : 12;
+  return { position, attrs: { ...attrs, x: Math.round(x), y: 12 } };
+}
 
-  return {
-    position: page.position + page.node.nodeSize - 1,
-    attrs: { ...attrs, x: Math.round(x), y: Math.round(y) },
-  };
+export function moveSigningField(editor: Editor, position: number, attrs: Record<string, unknown>, point: FieldDropPoint): boolean {
+  const node = editor.state.doc.nodeAt(position);
+  if (!node || node.type.name !== 'pageOverlay') return false;
+  const targetPosition = editor.view.posAtCoords({ left: point.clientX, top: point.clientY })?.pos;
+  if (targetPosition === undefined) return false;
+  const insertion = resolveOverlayInsertion(editor, attrs, targetPosition, point);
+  if (!insertion) return false;
+  const source = editor.state.doc.resolve(position);
+  const sameArea = source.parent.type.name === 'signingArea' && insertion.areaPosition === source.before(source.depth);
+  if (sameArea) {
+    const transaction = editor.state.tr.setNodeMarkup(position, undefined, insertion.attrs);
+    transaction.setSelection(NodeSelection.create(transaction.doc, position)); editor.view.dispatch(transaction); return true;
+  }
+  const transaction = editor.state.tr;
+  if (source.parent.type.name === 'signingArea' && source.parent.childCount === 1) transaction.delete(source.before(source.depth), source.after(source.depth));
+  else transaction.delete(position, position + node.nodeSize);
+  const insertAt = transaction.mapping.map(insertion.position);
+  const moved = node.type.create(insertion.attrs);
+  transaction.insert(insertAt, insertion.areaPosition !== undefined ? moved : editor.state.schema.nodes.signingArea.create({ areaId: createId('area') }, moved));
+  transaction.setSelection(NodeSelection.create(transaction.doc, insertAt + (insertion.areaPosition === undefined ? 1 : 0)));
+  editor.view.dispatch(transaction); return true;
 }
 
 export function insertNewField(
@@ -282,8 +223,9 @@ export function insertNewField(
   const node = nodeType.create(overlay?.attrs || reference.attrs);
   const transaction = editor.state.tr
     .setDocAttribute('fieldDefinitions', [...fields, field])
-    .insert(position, node);
-  transaction.setSelection(NodeSelection.create(transaction.doc, position));
+    .insert(position, overlay && overlay.areaPosition === undefined
+      ? editor.state.schema.nodes.signingArea.create({ areaId: createId('area') }, node) : node);
+  transaction.setSelection(NodeSelection.create(transaction.doc, position + (overlay && overlay.areaPosition === undefined ? 1 : 0)));
 
   editor.view.dispatch(transaction);
   return true;
@@ -307,8 +249,9 @@ export function insertExistingField(
   if (position === null) return false;
   const node = editor.state.schema.nodes[reference.nodeName]
     .create(overlay?.attrs || reference.attrs);
-  const transaction = editor.state.tr.insert(position, node);
-  transaction.setSelection(NodeSelection.create(transaction.doc, position));
+  const transaction = editor.state.tr.insert(position, overlay && overlay.areaPosition === undefined
+      ? editor.state.schema.nodes.signingArea.create({ areaId: createId('area') }, node) : node);
+  transaction.setSelection(NodeSelection.create(transaction.doc, position + (overlay && overlay.areaPosition === undefined ? 1 : 0)));
   editor.view.dispatch(transaction);
   return true;
 }
@@ -391,21 +334,6 @@ export function updateSelectedReference(
     nextAttrs,
     selected.node.marks,
   );
-  if (selected.node.type.name === 'pageOverlay' && nextAttrs.positionMode === 'anchor' && nextAttrs.anchorId) {
-    const requiredHeight = Math.min(900, Math.max(40,
-      (Number(nextAttrs.anchorOffsetY) || 0) + (Number(nextAttrs.height) || 0) + 16));
-    transaction.doc.descendants((node, position) => {
-      if (node.type.name === 'layoutAnchor' && node.attrs.anchorId === nextAttrs.anchorId
-        && Number(node.attrs.reservedHeight) < requiredHeight) {
-        transaction = transaction.setNodeMarkup(position, undefined, {
-          ...node.attrs,
-          reservedHeight: requiredHeight,
-        }, node.marks);
-        return false;
-      }
-      return true;
-    });
-  }
   transaction.setSelection(NodeSelection.create(transaction.doc, selected.position));
   editor.view.dispatch(transaction);
   return true;
@@ -462,9 +390,12 @@ export function deleteSelectedReference(editor: Editor): boolean {
     return false;
   }
 
-  editor.view.dispatch(
-    editor.state.tr.delete(selected.position, selected.position + selected.node.nodeSize),
-  );
+  const resolved = editor.state.doc.resolve(selected.position);
+  const removeArea = resolved.parent.type.name === 'signingArea' && resolved.parent.childCount === 1;
+  editor.view.dispatch(editor.state.tr.delete(
+    removeArea ? resolved.before(resolved.depth) : selected.position,
+    removeArea ? resolved.after(resolved.depth) : selected.position + selected.node.nodeSize,
+  ));
   return true;
 }
 

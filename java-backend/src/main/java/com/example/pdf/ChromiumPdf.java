@@ -21,11 +21,15 @@ final class ChromiumPdf {
     private static final Semaphore SLOTS = new Semaphore(2);
     private static final String EXECUTABLE = System.getenv().getOrDefault("CHROMIUM_PATH", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
     private static final String PAGINATION;
+    private static final String SIGNING_POSITIONS;
     static {
-        try { PAGINATION = Json.resourceText("/pagination.js"); }
+        try {
+            PAGINATION = Json.resourceText("/pagination.js");
+            SIGNING_POSITIONS = Json.resourceText("/signing-positions.js");
+        }
         catch (IOException error) { throw new ExceptionInInitializerError(error); }
     }
-    record Result(byte[] pdf, JsonNode pagination) {}
+    record Result(byte[] pdf, JsonNode pagination, JsonNode signingPositions) {}
 
     static Result render(String html) throws Exception {
         if (!SLOTS.tryAcquire(30, TimeUnit.SECONDS)) throw new IOException("PDF 服务繁忙");
@@ -54,9 +58,11 @@ final class ChromiumPdf {
                 if (!report.isObject()) throw new IOException("PDF 分页未返回校验结果");
                 if (report.path("overflowViolations").asInt() != 0 || report.path("widthViolations").asInt() != 0 || report.path("lostTextRows").asInt() != 0)
                     throw new IOException("PDF 分页校验失败: " + report);
+                JsonNode positions = cdp.evaluate(SIGNING_POSITIONS, session);
+                if (!positions.isArray()) throw new IOException("签署控件坐标采集失败");
                 JsonNode result = cdp.call("Page.printToPDF", Map.of("printBackground", true, "preferCSSPageSize", true,
                     "paperWidth", 8.2677, "paperHeight", 11.6929, "marginTop", 0, "marginRight", 0, "marginBottom", 0, "marginLeft", 0), session);
-                return new Result(Base64.getDecoder().decode(result.path("data").asText()), report);
+                return new Result(Base64.getDecoder().decode(result.path("data").asText()), report, positions);
             }
         } finally {
             if (process != null) {

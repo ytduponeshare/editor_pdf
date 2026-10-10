@@ -15,6 +15,7 @@ export const ContractDocument = Node.create({
 
   addAttributes() {
     return {
+      pageFurniture: { default: null, rendered: false },
       roles: { default: DEFAULT_ROLES, rendered: false },
       fieldDefinitions: {
         default: [],

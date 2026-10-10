@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { validatePageFurniture, decoratePrintPages } from './pageFurniture';
 import { generateHTML, generateJSON, type Editor, type JSONContent } from '@tiptap/core';
 import type { Node as ProseMirrorNode, Schema } from '@tiptap/pm/model';
 import { createEditorExtensions } from './extensions';
@@ -6,7 +7,9 @@ import { isAllowedFontFamily } from './extensions/FontFamily';
 import { isAllowedFontSize } from './extensions/FontSize';
 import { normalizeTextColor } from './extensions/TextColor';
 import { normalizeLineHeight } from './extensions/LineHeight';
+import { isDocumentImageSource } from './extensions/DocumentImage';
 import { createId } from './id';
+import { migrateSigningAreas } from './signingAreas';
 import { validFieldTables } from './fieldTables';
 import { isFieldTableConfig } from './fieldTableTypes';
 import { validateRoles, validBinding } from './roles';
@@ -31,6 +34,7 @@ const ALLOWED_DOCUMENT_NODES = new Set([
   'paragraph',
   'heading',
   'text',
+  'documentImage',
   'hardBreak',
   'bulletList',
   'orderedList',
@@ -38,6 +42,7 @@ const ALLOWED_DOCUMENT_NODES = new Set([
   'inlineField',
   'floatingField',
   'layoutAnchor',
+  'signingArea',
   'pageOverlay',
   'table',
   'tableRow',
@@ -71,9 +76,11 @@ export function serializeTemplate(editor: Editor): ContractTemplateV3 {
   delete attrs.fieldDefinitions;
   delete attrs.roles;
   delete attrs.pageMargins;
+  delete attrs.pageFurniture;
 
   return {
     schemaVersion: TEMPLATE_SCHEMA_VERSION,
+    pageFurniture: validatePageFurniture(runtimeDocument.attrs?.pageFurniture),
     pageSettings: { ...PAGE_SETTINGS, marginsMm },
     fields,
     roles,
@@ -86,12 +93,13 @@ export function serializeTemplate(editor: Editor): ContractTemplateV3 {
 
 export function hydrateTemplate(template: ContractTemplateV3): JSONContent {
   return {
-    ...template.document,
+    ...migrateSigningAreas(template.document, (210 - template.pageSettings.marginsMm.left - template.pageSettings.marginsMm.right) * 96 / 25.4),
     attrs: {
       ...(template.document.attrs || {}),
       fieldDefinitions: template.fields,
       roles: validateRoles(template.roles),
       pageMargins: template.pageSettings.marginsMm,
+      pageFurniture: validatePageFurniture(template.pageFurniture),
     },
   };
 }
@@ -118,7 +126,7 @@ function attachHtmlMetadata(document: JSONContent, template: HtmlContractTemplat
     }
     return { ...node, content };
   };
-  const hydrated = visit(document);
+  const hydrated = migrateSigningAreas(visit(document), (210 - template.pageSettings.marginsMm.left - template.pageSettings.marginsMm.right) * 96 / 25.4);
   return {
     ...hydrated,
     attrs: {
@@ -126,6 +134,7 @@ function attachHtmlMetadata(document: JSONContent, template: HtmlContractTemplat
       fieldDefinitions: template.fields,
       roles: template.roles,
       pageMargins: template.pageSettings.marginsMm,
+      pageFurniture: validatePageFurniture(template.pageFurniture),
     },
   };
 }
@@ -139,6 +148,7 @@ export function asJsonRuntimeTemplate(template: ContractTemplateSource): Contrac
   if (!isHtmlContractTemplate(template)) return template;
   return {
     schemaVersion: TEMPLATE_SCHEMA_VERSION,
+    pageFurniture: template.pageFurniture,
     pageSettings: template.pageSettings,
     roles: template.roles,
     fields: template.fields,
@@ -148,6 +158,7 @@ export function asJsonRuntimeTemplate(template: ContractTemplateSource): Contrac
       delete attrs.fieldDefinitions;
       delete attrs.roles;
       delete attrs.pageMargins;
+      delete attrs.pageFurniture;
       return { ...runtime, attrs: Object.keys(attrs).length ? attrs : undefined };
     })(),
   };
@@ -157,8 +168,8 @@ export function asJsonRuntimeTemplate(template: ContractTemplateSource): Contrac
 function sanitizeTemplateMarkup(html: string): string {
   return DOMPurify.sanitize(html, {
     ALLOW_DATA_ATTR: false,
-    ALLOWED_TAGS: ['section', 'p', 'h1', 'h2', 'h3', 'strong', 'em', 'u', 's', 'ul', 'ol', 'li', 'br', 'span', 'div', 'table', 'tbody', 'thead', 'tr', 'th', 'td', 'colgroup', 'col'],
-    ALLOWED_ATTR: ['class', 'style', 'colspan', 'rowspan', 'colwidth', 'data-contract-page', 'data-page-id', 'data-break-type', 'data-contract-field', 'data-contract-overlay', 'data-contract-anchor', 'data-anchor-id', 'data-anchor-name', 'data-reserved-height', 'data-position-mode', 'data-anchor-align', 'data-anchor-offset-x', 'data-anchor-offset-y', 'data-ref-id', 'data-field-id', 'data-field-type', 'data-field-name', 'data-width', 'data-height', 'data-x', 'data-y', 'data-table-id', 'data-fragment-id', 'data-continuation', 'data-row-id', 'data-repeated-header', 'data-source-row-id', 'data-bound-column'],
+    ALLOWED_TAGS: ['section', 'p', 'h1', 'h2', 'h3', 'strong', 'em', 'u', 's', 'ul', 'ol', 'li', 'br', 'span', 'div', 'table', 'tbody', 'thead', 'tr', 'th', 'td', 'colgroup', 'col', 'img'],
+    ALLOWED_ATTR: ['class', 'style', 'src', 'alt', 'colspan', 'rowspan', 'colwidth', 'data-contract-page', 'data-page-id', 'data-break-type', 'data-section-id', 'data-contract-field', 'data-contract-overlay', 'data-signing-area', 'data-area-id', 'data-min-height', 'data-contract-anchor', 'data-anchor-id', 'data-anchor-name', 'data-reserved-height', 'data-position-mode', 'data-anchor-align', 'data-anchor-offset-x', 'data-anchor-offset-y', 'data-ref-id', 'data-field-id', 'data-field-type', 'data-field-name', 'data-width', 'data-height', 'data-x', 'data-y', 'data-table-id', 'data-fragment-id', 'data-continuation', 'data-row-id', 'data-repeated-header', 'data-source-row-id', 'data-bound-column'],
   });
 }
 
@@ -185,6 +196,7 @@ export function convertJsonTemplateToHtml(template: ContractTemplateV3): HtmlCon
     formatVersion: 1,
     html,
     pageSettings: template.pageSettings,
+    pageFurniture: validatePageFurniture(template.pageFurniture),
     roles: template.roles || [],
     fields: template.fields,
     fieldTables: collectFieldTables(template.document),
@@ -243,7 +255,6 @@ function validateDocumentNodes(
   document: JSONContent,
   fields: FieldDefinition[],
   schema: Schema,
-  allowLegacyFloating: boolean,
   pageMargins: PageMargins,
 ): void {
   if (document.type !== 'doc' || !Array.isArray(document.content) || !document.content.length) {
@@ -276,6 +287,10 @@ function validateDocumentNodes(
         throw new Error('模板包含不支持的字体颜色');
       }
     });
+
+    if (node.type === 'documentImage' && !isDocumentImageSource(node.attrs?.src)) {
+      throw new Error('模板包含不支持的正文图片');
+    }
 
     if ((node.type === 'paragraph' || node.type === 'heading')
       && node.attrs?.lineHeight !== null
@@ -322,6 +337,18 @@ function validateDocumentNodes(
       }
     }
 
+    if (node.type === 'signingArea') {
+      if (parentType !== 'page') throw new Error('签署区域必须直属于页面');
+      const id = node.attrs?.areaId;
+      const minHeight = Number(node.attrs?.minHeight);
+      if (typeof id !== 'string' || !id || anchors.has(id)) throw new Error('签署区域 ID 缺失或重复');
+      if (!Number.isFinite(minHeight) || minHeight < 40 || minHeight > 900) throw new Error('签署区域高度无效');
+      let height = minHeight;
+      node.content?.forEach(child => { height = Math.max(height, Number(child.attrs?.y) + Number(child.attrs?.height) + 12); });
+      if (height > (296 - pageMargins.top - pageMargins.bottom) * 96 / 25.4 - 16) throw new Error('签署区域高度超出单页，请减小控件尺寸或分开布局');
+      anchors.set(id, height);
+    }
+
     if (node.type === 'layoutAnchor') {
       const anchorId = node.attrs?.anchorId;
       const anchorName = node.attrs?.anchorName;
@@ -343,10 +370,7 @@ function validateDocumentNodes(
       || node.type === 'floatingField'
       || node.type === 'pageOverlay'
     ) {
-      if (node.type === 'floatingField' && !allowLegacyFloating) {
-        throw new Error('新版模板不支持文流内浮动控件');
-      }
-      if (node.type === 'pageOverlay' && parentType !== 'page') {
+      if (node.type === 'pageOverlay' && parentType !== 'page' && parentType !== 'signingArea') {
         throw new Error('页面浮层控件必须直属于页面');
       }
       const fieldId = node.attrs?.fieldId;
@@ -356,7 +380,7 @@ function validateDocumentNodes(
         throw new Error('字段引用不存在、缺失或重复');
       }
       if (field.binding && !field.roleId && (!inside || !node.attrs?.boundColumn)) throw new Error('未分配角色的绑定字段必须属于字段表格');
-      if (node.type === 'pageOverlay' && !isFloatingFieldType(field.type)) {
+      if ((node.type === 'pageOverlay' || node.type === 'floatingField') && !isFloatingFieldType(field.type)) {
         throw new Error('只有签署区和企业章可以作为页面浮层');
       }
       if (node.type === 'pageOverlay') {
@@ -521,11 +545,14 @@ export function validateTemplate(value: unknown, schema: Schema): ContractTempla
   const document = value.schemaVersion === 1
     ? migrateLegacyDocument(value.document as JSONContent)
     : value.document as JSONContent;
+  const pageFurniture = validatePageFurniture(value.pageFurniture);
+  document.content?.forEach(page => {
+    if (!pageFurniture.sections.some(section => section.id === (page.attrs?.sectionId || 'default'))) throw new Error('页面引用的节不存在');
+  });
   validateDocumentNodes(
     document,
     fields,
     schema,
-    value.schemaVersion <= 3,
     marginsMm,
   );
 
@@ -534,6 +561,7 @@ export function validateTemplate(value: unknown, schema: Schema): ContractTempla
     pageSettings: { ...PAGE_SETTINGS, marginsMm },
     fields,
     roles,
+    pageFurniture,
     document,
   };
 }
@@ -555,11 +583,15 @@ export function validateHtmlTemplate(value: unknown, schema: Schema): HtmlContra
     tableIds.add(item.tableId);
     return { tableId: item.tableId, config: item.config };
   });
+  new DOMParser().parseFromString(value.html, 'text/html').querySelectorAll('img').forEach(image => {
+    if (!isDocumentImageSource(image.getAttribute('src'))) throw new Error('模板包含不支持的正文图片');
+  });
   const html = sanitizeTemplateMarkup(value.html);
   const dom = new DOMParser().parseFromString(html, 'text/html');
   const tableFields = new Set(Array.from(dom.querySelectorAll<HTMLElement>('table[data-table-id] [data-bound-column][data-field-id]')).map(field => field.dataset.fieldId!));
   const template: HtmlContractTemplateV1 = {
     format: 'html', formatVersion: 1,
+    pageFurniture: validatePageFurniture(value.pageFurniture),
     html,
     pageSettings: { ...PAGE_SETTINGS, marginsMm: validatePageMargins(settings.marginsMm) },
     fields: validateFields(value.fields, tableFields), roles: validateRoles(value.roles), fieldTables,
@@ -617,13 +649,13 @@ export function createSanitizedPrintHtml(editor: Editor): string {
     element.style.width = `${width}px`;
   });
 
-  parsed.querySelectorAll<HTMLElement>('[data-floating-field]').forEach((element) => {
+  parsed.querySelectorAll<HTMLElement>('[data-floating-field],span[data-contract-overlay][data-position-mode=inline]').forEach((element) => {
     const minimumWidth = element.dataset.fieldType === 'signature' ? 80 : 60;
     const minimumHeight = element.dataset.fieldType === 'signature' ? 40 : 60;
     const width = Math.max(minimumWidth, Math.min(794, Number(element.dataset.width) || 120));
     const height = Math.max(minimumHeight, Math.min(1123, Number(element.dataset.height) || 80));
-    const x = Number(element.dataset.offsetX) || 0;
-    const y = Number(element.dataset.offsetY) || 0;
+    const x = Number(element.dataset.offsetX ?? element.dataset.x) || 0;
+    const y = Number(element.dataset.offsetY ?? element.dataset.y) || 0;
     const label = element.dataset.fieldName || (element.dataset.fieldType === 'companySeal' ? '企业章' : '签署区');
     element.textContent = '';
     element.className = 'pdf-floating-anchor';
@@ -657,6 +689,8 @@ export function createSanitizedPrintHtml(editor: Editor): string {
     element.appendChild(placeholder);
   });
 
+  parsed.querySelectorAll<HTMLElement>('[data-signing-area]').forEach(element => { element.className = 'pdf-signing-area'; });
+
   parsed.querySelectorAll<HTMLElement>('[data-contract-anchor]').forEach((element) => {
     const height = Math.max(40, Math.min(900, Number(element.dataset.reservedHeight) || 140));
     element.className = 'pdf-layout-anchor';
@@ -669,10 +703,12 @@ export function createSanitizedPrintHtml(editor: Editor): string {
 
   const cleanBody = DOMPurify.sanitize(parsed.body.innerHTML, {
     ALLOW_DATA_ATTR: false,
-    ALLOWED_TAGS: ['section', 'p', 'h1', 'h2', 'h3', 'strong', 'em', 'u', 's', 'ul', 'ol', 'li', 'br', 'span', 'div', 'table', 'tbody', 'thead', 'tr', 'th', 'td', 'colgroup', 'col'],
-    ALLOWED_ATTR: ['class', 'style', 'colspan', 'rowspan', 'colwidth', 'data-contract-page', 'data-page-id', 'data-break-type', 'data-contract-anchor', 'data-anchor-id', 'data-anchor-name', 'data-reserved-height', 'data-position-mode', 'data-anchor-align', 'data-anchor-offset-x', 'data-anchor-offset-y', 'data-table-id', 'data-fragment-id', 'data-continuation', 'data-row-id', 'data-repeated-header', 'data-source-row-id'],
+    ALLOWED_TAGS: ['section', 'p', 'h1', 'h2', 'h3', 'strong', 'em', 'u', 's', 'ul', 'ol', 'li', 'br', 'span', 'div', 'table', 'tbody', 'thead', 'tr', 'th', 'td', 'colgroup', 'col', 'img'],
+    ALLOWED_ATTR: ['class', 'style', 'src', 'alt', 'colspan', 'rowspan', 'colwidth', 'data-contract-page', 'data-page-id', 'data-break-type', 'data-section-id', 'data-signing-area', 'data-area-id', 'data-min-height', 'data-contract-anchor', 'data-anchor-id', 'data-anchor-name', 'data-reserved-height', 'data-position-mode', 'data-anchor-align', 'data-anchor-offset-x', 'data-anchor-offset-y', 'data-table-id', 'data-fragment-id', 'data-continuation', 'data-row-id', 'data-repeated-header', 'data-source-row-id'],
   });
 
+  const printDocument = new DOMParser().parseFromString(cleanBody, 'text/html');
+  decoratePrintPages(printDocument, validatePageFurniture(template.pageFurniture), template.pageSettings.marginsMm);
   return `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><style>
     @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; }
@@ -682,10 +718,13 @@ export function createSanitizedPrintHtml(editor: Editor): string {
     .pdf-inline-field { display: inline-block; min-height: 1.45em; margin: 0 2px; border-bottom: 1px solid #111827; vertical-align: baseline; }
     .pdf-floating-anchor { position: relative; display: inline-block; width: 0; height: 0; }
     .pdf-page-overlay { position: absolute; z-index: 2; top: calc(var(--page-safe-top) + var(--field-y)); left: calc(var(--page-safe-left) + var(--field-x)); width: var(--field-width); height: var(--field-height); background: transparent; }
+    .pdf-signing-area { position: relative; width: 100%; margin: 0 0 .85em; break-inside: avoid; page-break-inside: avoid; }
+    .pdf-signing-area .pdf-page-overlay { top: var(--field-y); left: var(--field-x); }
     .pdf-layout-anchor { position: relative; width: 100%; break-inside: avoid; page-break-inside: avoid; }
     .pdf-field-placeholder { display: grid; place-items: center; border: 1px dashed #7c8ba1; color: #667085; background: transparent; font-size: 13px; text-align: center; }
     .pdf-page-overlay > .pdf-field-placeholder { width: 100%; height: 100%; }
     .pdf-floating-anchor > .pdf-field-placeholder { position: absolute; z-index: 1; top: var(--field-y); left: var(--field-x); width: var(--field-width); height: var(--field-height); }
+    .contract-document-image { max-width: 100%; max-height: 700px; width: auto; height: auto; vertical-align: middle; object-fit: contain; }
     p { margin: 0 0 0.75em; line-height: 1.7; }
     p:empty { min-height: 1.7em; }
     h1 { margin: 0 0 0.8em; font-size: 28px; line-height: 1.35; }
@@ -721,7 +760,12 @@ export function createSanitizedPrintHtml(editor: Editor): string {
     th p, td p { min-height: 1.7em; margin: 0; }
     th .pdf-inline-field, td .pdf-inline-field { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
     tr { break-inside: avoid; }
-  </style></head><body>${cleanBody}</body></html>`;
+    .page-furniture { font-size: 12px; line-height: 1.4; overflow: hidden; color: #475467; }
+    .page-furniture p { margin: 0; min-height: 0; line-height: 1.4; }
+    .page-furniture table { margin: 0; }
+    .page-furniture th, .page-furniture td { border: 1px solid #98a2b3; padding: 2px 4px; }
+    .page-furniture img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  </style></head><body>${printDocument.body.innerHTML}</body></html>`;
 }
 
 export function downloadHtml(editor: Editor): void {

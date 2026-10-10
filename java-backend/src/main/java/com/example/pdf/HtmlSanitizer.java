@@ -22,7 +22,7 @@ final class HtmlSanitizer {
         "tbody", "thead", "tr", "th", "td", "colgroup", "col", "img"
     );
     private static final Set<String> GLOBAL_ATTRIBUTES = Set.of(
-        "class", "style", "data-contract-page", "data-page-id", "data-break-type",
+        "class", "style", "data-section-id", "data-page-furniture", "data-furniture-variant", "data-page-counter", "data-different-first", "data-different-even", "data-header-height", "data-footer-height", "data-signing-area", "data-area-id", "data-min-height", "data-contract-page", "data-page-id", "data-break-type",
         "data-table-id", "data-fragment-id", "data-continuation", "data-row-id",
         "data-repeated-header", "data-source-row-id", "data-contract-anchor",
         "data-anchor-id", "data-anchor-name", "data-reserved-height", "data-position-mode",
@@ -116,7 +116,7 @@ final class HtmlSanitizer {
         }
         for (Element overlay : document.select("[data-position-mode]")) {
             String mode = overlay.attr("data-position-mode");
-            if (!mode.equals("page") && !mode.equals("anchor")) {
+            if (!mode.equals("page") && !mode.equals("anchor") && !mode.equals("inline")) {
                 throw new IllegalArgumentException("Invalid overlay position mode");
             }
             if (!mode.equals("anchor")) continue;

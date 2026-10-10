@@ -9,6 +9,7 @@ import {
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createId } from '../id';
 import { normalizePageMargins } from '../types';
+import { getSection, furnitureReserve, furnitureVariant, furnitureWithCounters, type PageFurniture } from '../pageFurniture';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -32,6 +33,9 @@ function cloneNodeWithFreshIds(node: ProseMirrorNode): ProseMirrorNode {
         pageId: createId('page'),
         breakType: 'manual',
       };
+    }
+    if (item.type === 'signingArea') {
+      item.attrs = { ...(item.attrs || {}), areaId: createId('area') };
     }
     if (item.type === 'layoutAnchor') {
       const sourceAnchorId = String(item.attrs?.anchorId || createId('anchor-source'));
@@ -105,18 +109,20 @@ function PageNodeView({ editor, getPos, node, selected }: NodeViewProps) {
       const flowBottom = Array.from(flowRoot.children)
         .filter((child) => (
           !child.matches('.node-pageOverlay')
-          && !child.querySelector('[data-page-overlay]')
+          && !child.matches('[data-page-overlay]')
         ))
         .reduce((maximum, child) => {
         return Math.max(maximum, child.getBoundingClientRect().bottom);
       }, content.getBoundingClientRect().top);
-      const overflowing = flowBottom > contentBottom + 1;
+      const furnitureOverflow = Array.from(wrapper.querySelectorAll<HTMLElement>(':scope > [data-page-furniture]')).some(region => region.scrollHeight > region.clientHeight + 1 || region.scrollWidth > region.clientWidth + 1);
+      const overflowing = flowBottom > contentBottom + 1 || furnitureOverflow;
       wrapper.dataset.overflow = overflowing ? 'true' : 'false';
       setIsOverflowing(overflowing);
     };
 
     const observer = new ResizeObserver(checkOverflow);
     observer.observe(content);
+    wrapper.querySelectorAll<HTMLElement>(':scope > [data-page-furniture]').forEach(region => observer.observe(region));
     Array.from(content.children).forEach((child) => observer.observe(child));
     const mutationObserver = new MutationObserver(() => {
       Array.from(content.children).forEach((child) => observer.observe(child));
@@ -132,7 +138,7 @@ function PageNodeView({ editor, getPos, node, selected }: NodeViewProps) {
       observer.disconnect();
       mutationObserver.disconnect();
     };
-  }, [node.content.size]);
+  }, [node.content.size, editor.state.doc.attrs.pageFurniture, editor.state.doc.attrs.pageMargins]);
 
   const position = getPos();
   const pageIndex = typeof position === 'number'
@@ -144,11 +150,21 @@ function PageNodeView({ editor, getPos, node, selected }: NodeViewProps) {
     && editor.state.doc.child(pageIndex + 1).attrs.breakType === 'auto';
   const isInAutomaticFlow = isAutomaticPage || nextPageIsAutomatic;
   const pageMargins = normalizePageMargins(editor.state.doc.attrs.pageMargins);
+  const furniture = editor.state.doc.attrs.pageFurniture as PageFurniture | null;
+  const section = getSection(furniture, node.attrs.sectionId);
+  let firstInSection = true;
+  editor.state.doc.forEach((page, _offset, index) => {
+    if (index < pageIndex && page.attrs.sectionId === node.attrs.sectionId) firstInSection = false;
+  });
+  const variant = furnitureVariant(section, firstInSection, pageIndex + 1);
+  const reserve = furnitureReserve(section);
   const pageStyle = {
     '--page-margin-top': `${pageMargins.top}mm`,
     '--page-margin-right': `${pageMargins.right}mm`,
     '--page-margin-bottom': `${pageMargins.bottom}mm`,
     '--page-margin-left': `${pageMargins.left}mm`,
+    '--page-body-top': `${pageMargins.top + reserve.header}mm`,
+    '--page-body-bottom': `${pageMargins.bottom + reserve.footer}mm`,
   } as CSSProperties;
 
   const runPageCommand = (command: () => boolean) => (event: React.MouseEvent) => {
@@ -175,6 +191,7 @@ function PageNodeView({ editor, getPos, node, selected }: NodeViewProps) {
       as="section"
       className={`contract-page${selected ? ' is-selected' : ''}`}
       data-page-id={node.attrs.pageId}
+      data-section-id={node.attrs.sectionId}
       data-break-type={node.attrs.breakType}
       style={pageStyle}
       ref={(element: HTMLElement | null) => {
@@ -226,6 +243,14 @@ function PageNodeView({ editor, getPos, node, selected }: NodeViewProps) {
           ＋页
         </button>
       </div> : null}
+      {(['header', 'footer'] as const).map(kind => section[`${kind}Enabled`] ? <div
+        key={kind}
+        className={`page-furniture page-furniture--${kind}`}
+        contentEditable={false}
+        data-page-furniture={kind}
+        style={{ height: `${section[`${kind}HeightMm`]}mm` }}
+        dangerouslySetInnerHTML={{ __html: furnitureWithCounters(section[kind][variant], pageIndex + 1, pageCount) }}
+      /> : null)}
       <NodeViewContent className="contract-page__content" />
       {isOverflowing ? (
         <div className="contract-page__overflow" contentEditable={false}>
@@ -245,6 +270,11 @@ export const Page = Node.create({
 
   addAttributes() {
     return {
+      sectionId: {
+        default: 'default',
+        parseHTML: element => element.getAttribute('data-section-id') || 'default',
+        renderHTML: attributes => ({ 'data-section-id': attributes.sectionId }),
+      },
       pageId: {
         default: null,
         parseHTML: (element) => element.getAttribute('data-page-id'),
@@ -286,7 +316,7 @@ export const Page = Node.create({
 
           const paragraph = state.schema.nodes.paragraph.create();
           const nextPage = this.type.create(
-            { pageId: createId('page'), breakType: 'manual' },
+            { pageId: createId('page'), breakType: 'manual', sectionId: page.attrs.sectionId },
             paragraph,
           );
           dispatch?.(state.tr.insert(position + page.nodeSize, nextPage).scrollIntoView());

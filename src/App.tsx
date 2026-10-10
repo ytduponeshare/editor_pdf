@@ -24,6 +24,7 @@ import { getRoles } from './editor/roles';
 import { ContractRecordsDialog } from './components/SignedFilesDialog';
 import { type ContractTemplateSource } from './editor/types';
 import { DemoPortal } from './components/DemoPortal';
+import { readWordFile } from './editor/wordImport';
 
 type SaveState = 'saved' | 'saving' | 'error';
 
@@ -63,6 +64,7 @@ export function ContractEditor({ initialTemplate, templateName = '', templateId,
   const [message, setMessage] = useState(initial.error);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [showSigningDialog, setShowSigningDialog] = useState(false);
   const [signingSession, setSigningSession] = useState<SigningSession | null>(null);
   const [showSignedFiles, setShowSignedFiles] = useState(false);
@@ -136,9 +138,9 @@ export function ContractEditor({ initialTemplate, templateName = '', templateId,
       const payload = JSON.parse(raw) as DragPayload;
       const position = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
       const inserted = payload.kind === 'new' && payload.type
-        ? insertNewField(editor, payload.type, position)
+        ? insertNewField(editor, payload.type, position, { clientX: event.clientX, clientY: event.clientY })
         : payload.kind === 'existing' && payload.fieldId
-          ? insertExistingField(editor, payload.fieldId, position)
+          ? insertExistingField(editor, payload.fieldId, position, { clientX: event.clientX, clientY: event.clientY })
           : false;
       if (!inserted) setMessage('该位置无法插入控件，请拖到页面可编辑区域');
     } catch {
@@ -147,20 +149,27 @@ export function ContractEditor({ initialTemplate, templateName = '', templateId,
   };
 
   const handleImport = async (file: File) => {
-    if (!editor) return;
+    if (!editor || isImporting) return;
+    setIsImporting(true);
     try {
-      const template = await readTemplateFile(file, editor.schema);
+      const isWord = /\.docx?$/i.test(file.name);
+      const imported = isWord ? await readWordFile(file, editor.schema) : null;
+      const template = imported ? imported.template : await readTemplateFile(file, editor.schema);
       if (!window.confirm('导入模板会覆盖当前内容，确定继续吗？')) return;
       editor.chain().setContent(hydrateTemplateSource(template), { emitUpdate: true }).command(({ tr }) => {
         tr.setDocAttribute('fieldDefinitions', template.fields);
         tr.setDocAttribute('roles', template.roles);
         tr.setDocAttribute('pageMargins', template.pageSettings.marginsMm);
+        tr.setDocAttribute('pageFurniture', template.pageFurniture || null);
         return true;
       }).run();
-      setMessage('模板导入成功');
+      setMessage(imported
+        ? `Word 导入成功，可继续编辑、设置页眉页脚并手动添加控件。复杂排版和原始分页可能与原文不同。${imported.warnings.length ? ` 导入提示：${imported.warnings.join('；')}` : ''}`
+        : '模板导入成功');
     } catch (error) {
       setMessage(error instanceof Error ? `导入失败：${error.message}` : '模板导入失败');
     } finally {
+      setIsImporting(false);
       if (importInputRef.current) importInputRef.current.value = '';
     }
   };
@@ -221,7 +230,9 @@ export function ContractEditor({ initialTemplate, templateName = '', templateId,
         onStartSigning={() => setShowSigningDialog(true)}
         onOpenSignedFiles={() => setShowSignedFiles(true)}
         isExporting={isExporting}
+        isImporting={isImporting}
         saveLabel={saveLabel}
+        documentTitle={templateName || '未命名合同模板'}
         onSaveTemplate={onSaved ? () => void handleSaveTemplate() : undefined}
         onBack={onBack}
         hideLegacySigning={!!onSaved}
@@ -253,7 +264,7 @@ export function ContractEditor({ initialTemplate, templateName = '', templateId,
         ref={importInputRef}
         className="visually-hidden"
         type="file"
-        accept="application/json,.json"
+        accept="application/json,.json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void handleImport(file);

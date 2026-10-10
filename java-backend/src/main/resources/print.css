@@ -9,6 +9,7 @@
     ul, ol { margin: 0 0 .75em; padding-left: 2em; }
     .pdf-inline-field { display: inline-block; min-height: 1.35em; border-bottom: 1px solid #111827; vertical-align: baseline; }
     .pdf-inline-field--signed { padding: 0 3px; text-align: center; }
+    .pdf-inline-field__value { display: inline-block; max-width: 100%; text-align: left; }
     .pdf-page-overlay { position: absolute; z-index: 2; top: calc(var(--page-safe-top) + var(--field-y)); left: calc(var(--page-safe-left) + var(--field-x)); width: var(--field-width); height: var(--field-height); background: transparent; }
     .pdf-layout-anchor { position: relative; width: 100%; break-inside: avoid; page-break-inside: avoid; }
     .pdf-field-placeholder { display: grid; width: 100%; height: 100%; place-items: center; border: 1px dashed #7c8ba1; color: #667085; background: transparent; font-size: 13px; }
@@ -17,3 +18,16 @@
     th, td { position: relative; min-width: 0; padding: 7px 8px; border: 0; border-right: 1px solid #6b7280; border-bottom: 1px solid #6b7280; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
     th { background: #f2f4f7; font-weight: 600; text-align: left; print-color-adjust: exact; }
     th p, td p { margin: 0; } th .pdf-inline-field, td .pdf-inline-field { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; } tr { break-inside: avoid; }
+    .pdf-signing-area { position: relative; width: 100%; margin: 0 0 .85em; break-inside: avoid; page-break-inside: avoid; }
+    .pdf-signing-area .pdf-page-overlay { top: var(--field-y); left: var(--field-x); }
+
+    .contract-document-image { max-width: 100%; max-height: 700px; width: auto; height: auto; vertical-align: middle; object-fit: contain; }
+
+    .page-furniture { font-size: 12px; line-height: 1.4; overflow: hidden; color: #475467; }
+    .page-furniture p { margin: 0; min-height: 0; line-height: 1.4; }
+    .page-furniture table { margin: 0; border-collapse: collapse; }
+    .page-furniture th, .page-furniture td { border: 1px solid #98a2b3; padding: 2px 4px; }
+    .page-furniture img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+    .pdf-floating-anchor { position: relative; display: inline-block; width: 0; height: 0; vertical-align: baseline; }
+    .pdf-floating-box { position: absolute; z-index: 2; top: var(--field-y); left: var(--field-x); width: var(--field-width); height: var(--field-height); }

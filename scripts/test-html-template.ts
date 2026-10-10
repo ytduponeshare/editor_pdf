@@ -48,5 +48,25 @@ for (const id of ['template-demo-html-001', 'template-demo-html-long-table-001',
     assert.throws(() => validateHtmlTemplate(seed, schema), /字段表格/);
   }
 }
+const legacySigningTemplate = JSON.parse(readFileSync('java-backend/src/main/resources/templates/template-demo-html-anchor-dynamic-long-table-001.json', 'utf8')).template;
+const signingRuntime = hydrateTemplateSource(validateHtmlTemplate(legacySigningTemplate, schema));
+const signingPage = signingRuntime.content?.[0];
+const signingArea = signingPage?.content?.find(node => node.type === 'paragraph' && node.content?.some(child => child.type === 'floatingField'));
+assert.ok(signingArea, 'Legacy signing areas must become inline anchors');
+assert.equal(signingArea.content?.length, 3, 'Keep every signature and seal at its paragraph anchor');
+assert.ok(signingPage?.content?.every(node => node.type !== 'layoutAnchor' && node.type !== 'pageOverlay'));
+const signingEnvelope = serializeHtmlTemplate({ getJSON: () => signingRuntime } as unknown as Editor);
+assert.match(signingEnvelope.html, /data-position-mode="inline"/);
+assert.doesNotMatch(signingEnvelope.html, /data-contract-anchor|data-anchor-id|data-signing-area/);
+assert.doesNotThrow(() => validateHtmlTemplate(signingEnvelope, schema));
+const signingPrint = createSanitizedPrintHtml({ getJSON: () => signingRuntime } as unknown as Editor);
+assert.match(signingPrint, /pdf-floating-anchor/);
+assert.doesNotMatch(signingPrint, /class="pdf-signing-area"/);
+const reloadedSigning = hydrateTemplateSource(validateHtmlTemplate(signingEnvelope, schema));
+const floatingRefs = (node: typeof signingRuntime): Array<Record<string, unknown>> => [
+  ...(node.type === 'floatingField' ? [{ ...node.attrs }] : []),
+  ...(node.content || []).flatMap(floatingRefs),
+];
+assert.deepEqual(floatingRefs(reloadedSigning), floatingRefs(signingRuntime), 'HTML round trip must preserve floating offsets, sizes and field identity');
 dom.window.close();
 console.log('PASS: HTML template round trip preserves roles, fields and formatting; invalid metadata is rejected; print HTML drops editor field metadata');

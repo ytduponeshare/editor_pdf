@@ -10,10 +10,12 @@ import { InlineField } from './InlineField';
 import { LineHeight } from './LineHeight';
 import { LayoutAnchor } from './LayoutAnchor';
 import { Page } from './Page';
+import { SigningArea } from './SigningArea';
 import { PageOverlay } from './PageOverlay';
 import { Pagination } from './Pagination';
 import { TableBoundary } from './TableBoundary';
 import { TextColor } from './TextColor';
+import { DocumentImage } from './DocumentImage';
 
 export function createEditorExtensions() {
   return [
@@ -29,6 +31,7 @@ export function createEditorExtensions() {
     ContractDocument,
     Page,
     LayoutAnchor,
+    SigningArea,
     PageOverlay,
     Pagination,
     InlineField,
@@ -37,6 +40,7 @@ export function createEditorExtensions() {
     FontFamily,
     FontSize,
     TextColor,
+    DocumentImage,
     ContractTable,
     ContractTableRow,
     TableHeader,

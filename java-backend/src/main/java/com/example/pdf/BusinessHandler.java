@@ -85,16 +85,27 @@ final class BusinessHandler implements HttpHandler {
                 if (!submissions) json(e, 200, ContractService.publicView(stored.view()));
                 else {
                     ObjectNode result = submission(stored.view()); result.set("fields", stored.view().path("fields")); result.put("signatureCount", stored.view().path("signatures").size()).put("sealCount", stored.view().path("seals").size());
+                    if (stored.view().has("signingPositions")) {
+                        result.set("signingPositions", stored.view().path("signingPositions"));
+                        result.set("pdfPageCount", stored.view().path("pdfPageCount"));
+                    }
                     var ids = Json.array(); stored.view().path("signatures").forEach(s -> ids.add(Json.text(s, "fieldId"))); result.set("signedFieldIds", ids); json(e, 200, result);
                 }
                 return;
             }
         }
-        if (path.equals("/api/pdf/template")) {
+        if (path.equals("/api/pdf/template") || path.equals("/api/pdf/template/render")) {
             method(e, "POST"); JsonNode body = body(e); ObjectNode template = HtmlTemplate.parse(body.path("template"));
             JsonNode signed = body.path("signed"); Json.require(signed.isObject(), "预览数据格式无效");
             // Preview is a render-only operation: it cannot change any contract state or stored PDF.
-            var result = ChromiumPdf.render(HtmlTemplate.render(template, signed)); pdf(e, result.pdf(), result.pagination()); return;
+            var result = ChromiumPdf.render(HtmlTemplate.render(template, signed));
+            if (path.endsWith("/render")) {
+                var response = Json.object().put("pdfBase64", java.util.Base64.getEncoder().encodeToString(result.pdf()))
+                    .put("pdfPageCount", result.pagination().path("finalPages").asInt());
+                response.set("signingPositions", result.signingPositions());
+                json(e, 200, response);
+            } else pdf(e, result.pdf(), result.pagination());
+            return;
         }
         throw new ContractService.ApiError(404, "接口不存在");
     }
