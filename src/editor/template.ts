@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import { validatePageFurniture, decoratePrintPages } from './pageFurniture';
-import { generateHTML, generateJSON, type Editor, type JSONContent } from '@tiptap/core';
-import type { Node as ProseMirrorNode, Schema } from '@tiptap/pm/model';
+import { generateHTML, getSchema, type Editor, type JSONContent } from '@tiptap/core';
+import { DOMParser as ProseMirrorDOMParser, type Node as ProseMirrorNode, type Schema } from '@tiptap/pm/model';
 import { createEditorExtensions } from './extensions';
 import { isAllowedFontFamily } from './extensions/FontFamily';
 import { isAllowedFontSize } from './extensions/FontSize';
@@ -141,7 +141,11 @@ function attachHtmlMetadata(document: JSONContent, template: HtmlContractTemplat
 
 export function hydrateTemplateSource(template: ContractTemplateSource): JSONContent {
   if (!isHtmlContractTemplate(template)) return hydrateTemplate(template);
-  return attachHtmlMetadata(generateJSON(template.html, createEditorExtensions()), template);
+  const dom = new DOMParser().parseFromString(template.html, 'text/html');
+  const schema = getSchema(createEditorExtensions());
+  // Preserve typed spacing when restoring a template or opening it for signing.
+  const content = ProseMirrorDOMParser.fromSchema(schema).parse(dom.body, { preserveWhitespace: true }).toJSON();
+  return attachHtmlMetadata(content, template);
 }
 
 export function asJsonRuntimeTemplate(template: ContractTemplateSource): ContractTemplateV3 {
@@ -715,6 +719,7 @@ export function createSanitizedPrintHtml(editor: Editor): string {
     body { margin: 0; color: #111827; font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.7; }
     .pdf-page { --page-safe-left: ${left}mm; --page-safe-top: ${top}mm; position: relative; width: 210mm; height: 296mm; padding: ${top}mm ${right}mm ${bottom}mm ${left}mm; break-before: page; page-break-before: always; overflow: hidden; }
     .pdf-page:first-child { break-before: auto; page-break-before: auto; }
+    .pdf-page p, .pdf-page h1, .pdf-page h2, .pdf-page h3 { white-space: pre-wrap; }
     .pdf-inline-field { display: inline-block; min-height: 1.45em; margin: 0 2px; border-bottom: 1px solid #111827; vertical-align: baseline; }
     .pdf-floating-anchor { position: relative; display: inline-block; width: 0; height: 0; }
     .pdf-page-overlay { position: absolute; z-index: 2; top: calc(var(--page-safe-top) + var(--field-y)); left: calc(var(--page-safe-left) + var(--field-x)); width: var(--field-width); height: var(--field-height); background: transparent; }

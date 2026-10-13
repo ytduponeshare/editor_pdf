@@ -4,6 +4,7 @@
     body { color: #111827; font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.7; }
     .pdf-page { --page-safe-left: {{left}}mm; --page-safe-top: {{top}}mm; position: relative; width: 210mm; height: 296mm; padding: {{top}}mm {{right}}mm {{bottom}}mm {{left}}mm; overflow: hidden; break-before: page; page-break-before: always; }
     .pdf-page:first-child { break-before: auto; page-break-before: auto; }
+    .pdf-page p, .pdf-page h1, .pdf-page h2, .pdf-page h3 { white-space: pre-wrap; }
     p { min-height: 1.7em; margin: 0 0 .75em; line-height: 1.7; }
     h1 { font-size: 28px; } h2 { font-size: 22px; } h3 { font-size: 18px; } h1 { margin: 0 0 .8em; line-height: 1.35; } h2 { margin: 0 0 .7em; line-height: 1.4; } h3 { margin: 0 0 .65em; line-height: 1.45; } h1, h2, h3 { break-after: avoid; }
     ul, ol { margin: 0 0 .75em; padding-left: 2em; }
